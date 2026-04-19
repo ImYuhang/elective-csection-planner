@@ -808,9 +808,14 @@ def sweep_gamma(
 
     # Collect raw (pE, pL, aband_E, aband_L) per gamma
     raw: Dict[float, List[tuple]] = {float(g): [] for g in gammas}
-    with ProcessPoolExecutor(max_workers=workers) as pool:
-        for g_out, pE, pL, aband_E, aband_L in pool.map(_sweep_one_rep, tasks):
+    _ON_CLOUD = os.path.exists("/mount/src")
+    if _ON_CLOUD:
+        for g_out, pE, pL, aband_E, aband_L in map(_sweep_one_rep, tasks):
             raw[g_out].append((pE, pL, aband_E, aband_L))
+    else:
+        with ProcessPoolExecutor(max_workers=workers) as pool:
+            for g_out, pE, pL, aband_E, aband_L in pool.map(_sweep_one_rep, tasks):
+                raw[g_out].append((pE, pL, aband_E, aband_L))
 
     # Aggregate per gamma
     rows = []

@@ -432,9 +432,16 @@ def _gamma_sweep_on_traces(saved_traces, mu_E, pooled_mu_E, gc, pb, s0, T, T0):
     tasks = [(shifted, float(g), N, T0, pns, s0, T, cE, cL, Delta, v) for g in gammas]
 
     gamma_summary = {}
-    n_workers = min(len(gammas), os.cpu_count() or 4)
-    with ProcessPoolExecutor(max_workers=n_workers) as pool:
-        for g, costs, phis, runs, dfs, hists in pool.map(_run_one_gamma_worker, tasks):
+    _ON_CLOUD = os.path.exists("/mount/src")
+    if _ON_CLOUD:
+        _results_iter = map(_run_one_gamma_worker, tasks)
+        _pool_ctx = None
+    else:
+        n_workers = min(len(gammas), os.cpu_count() or 4)
+        _pool_ctx = ProcessPoolExecutor(max_workers=n_workers)
+        _results_iter = _pool_ctx.map(_run_one_gamma_worker, tasks)
+    try:
+        for g, costs, phis, runs, dfs, hists in _results_iter:
             mean_C   = float(np.mean(costs)) if costs else float("nan")
             mean_phi = float(np.mean(phis))  if phis  else float("nan")
             ineq     = max(0.0, abs(mean_phi) - Delta)
@@ -442,6 +449,9 @@ def _gamma_sweep_on_traces(saved_traces, mu_E, pooled_mu_E, gc, pb, s0, T, T0):
             gamma_summary[float(g)] = dict(
                 C=mean_C, phi=mean_phi, ineq=ineq,
                 stats=stats_h, df_all=pd.concat(dfs, ignore_index=True), hists=hists)
+    finally:
+        if _pool_ctx is not None:
+            _pool_ctx.shutdown()
 
     # Pick γ* — minimise C; break ties by smallest γ
     feas = {g: d for g, d in gamma_summary.items() if d["ineq"] <= 1e-12}
