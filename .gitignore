@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+saved sessions/
+saved HTMLs/
+saved HTMLs.zip
+.DS_Store
+.env
+.venv/
+venv/
+.streamlit/secrets.toml
