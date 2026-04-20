@@ -67,7 +67,7 @@ def _pdf_cdf_lead_grid(lo: float, hi: float, F: str, params: Dict[str, float], n
         mean = float(params.get("mean", (lo + hi) / 2))
         sd   = float(params.get("sd",   max(1e-3, (hi - lo) / 4)))
         raw  = (1.0 / (sd * SQRT2PI)) * np.exp(-(xs - mean) ** 2 / (2.0 * sd * sd))
-        area = np.trapz(raw, xs)
+        area = np.trapezoid(raw, xs)
         pdf  = raw / area if area > 0 else raw
     else:
         # Lognormal (truncated)
@@ -76,7 +76,7 @@ def _pdf_cdf_lead_grid(lo: float, hi: float, F: str, params: Dict[str, float], n
         mu, sigma = _lognormal_mu_sigma_from_mean_sd(mean, sd)
         raw  = (1.0 / (xs * sigma * SQRT2PI)) * np.exp(-(np.log(xs) - mu) ** 2 / (2.0 * sigma * sigma))
         raw[~np.isfinite(raw)] = 0.0
-        area = np.trapz(raw, xs)
+        area = np.trapezoid(raw, xs)
         pdf  = raw / area if area > 0 else raw
 
     cdf = np.cumsum((pdf[:-1] + pdf[1:]) * (xs[1:] - xs[:-1]) / 2.0)
