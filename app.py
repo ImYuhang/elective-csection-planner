@@ -706,80 +706,6 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Full detailed render (adapted from version 3 Tab 1)
-# ═══════════════════════════════════════════════════════════════════════════
-def _render_detailed(results: dict, warmup_T: float, T_max_: float, n_runs_: int,
-                     params_lead: Dict):
-    """
-    results: {policy_name: (stats_df, df_all, hists_list)}
-    params_lead: dict with early_min/max/F/params, late_min/max/F/params
-    """
-    import re as _re
-    import plotly.io as _pio
-    import streamlit.components.v1 as _components
-
-    def _short_name(pname):
-        """Strip γ* from policy name for use in figure subplot titles."""
-        m = _re.search(r"μᴱ=([\d.]+)", pname)
-        if m:
-            return f"dedicated-EDF (μᴱ={float(m.group(1)):.0f})"
-        return pname  # pooled-EDF
-
-    def _scroll_chart(fig, height_px):
-        """Render a wide Plotly figure inside a horizontally scrollable div."""
-        html_str = _pio.to_html(fig, full_html=False, include_plotlyjs="cdn")
-        _components.html(
-            f'<div style="overflow-x:auto;width:100%;padding-bottom:8px">{html_str}</div>',
-            height=height_px + 30, scrolling=False)
-
-    policy_names = list(results.keys())
-    n_pol        = len(policy_names)
-    short_names  = [_short_name(p) for p in policy_names]
-
-    # γ* callouts
-    _N_det = int(st.session_state.get("tab1_params_base", {}).get("N", 18))
-    for pname in policy_names:
-        if "Optimal dedicated-EDF" not in pname: continue
-        m = _re.search(r"γ\*=([\d.]+)", pname)
-        if m:
-            _gs = float(m.group(1))
-            _NE = _gs * _N_det; _NL = _N_det - _NE
-            st.markdown(
-                f'<div style="background:#e8f4e8;border-left:4px solid #2e7d32;'
-                f'padding:8px 14px;border-radius:4px;margin-bottom:6px;">'
-                f'<b>{pname}</b> — γ* = {_gs:.3f} &nbsp;|&nbsp; '
-                f'Nᴱ = {_NE:.2f} &nbsp; Nᴸ = {_NL:.2f}</div>',
-                unsafe_allow_html=True)
-
-    st.markdown("""<style>
-div[data-testid="stHorizontalBlock"] > div[data-testid="stVerticalBlockBorderWrapper"] >
-div > div[data-testid="stVerticalBlock"] {
-    border:1.5px solid rgba(100,120,180,0.28);border-radius:10px;
-    padding:0.7rem 0.9rem !important;background:rgba(245,247,253,0.55);}
-</style>""", unsafe_allow_html=True)
-
-    def _fmt_pct(m, s): return "—" if pd.isna(m) else f"{m:.2%} ± {s:.2%}"
-    def _fmt_num(m, s): return "—" if pd.isna(m) else f"{m:.3f} ± {s:.3f}"
-
-    def _ctable(keys, labels, fmt_fn):
-        rows = {}
-        for k in keys:
-            rows[labels[k]] = {
-                pn: fmt_fn(results[pn][0].loc[k,'mean'], results[pn][0].loc[k,'std'])
-                for pn in policy_names if k in results[pn][0].index}
-        return pd.DataFrame(rows).T
-
-    st.subheader(f"Primary metrics  (mean ± SD over {n_runs_} runs)")
-    st.dataframe(_ctable(
-        ['service_rate','abandon_rate','util_1'],
-        {'service_rate':'Service rate','abandon_rate':'Abandon rate','util_1':'Utilisation'},
-        _fmt_pct), use_container_width=True)
-
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# TABS
-# ═══════════════════════════════════════════════════════════════════════════
 # ═══════════════════════════════════════════════════════════════════════════
 # HTML REPORT EXPORT
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1070,7 +996,7 @@ def _generate_html_report() -> str:
         parts.append(f"<h3>Primary metrics (mean ± SD over {nr_} runs)</h3>")
         parts.append(_tbl_metrics(_ctable_h(
             ["service_rate", "abandon_rate", "util_1"],
-            {"service_rate": "Service rate", "abandon_rate": "Abandon rate", "util_1": "Utilisation"},
+            {"service_rate": "Service rate", "abandon_rate": "Case-loss rate", "util_1": "Utilisation"},
             _fmt_pct_h)))
 
         parts.append('</div>')
@@ -1474,24 +1400,4 @@ with tab2:
                     "Cost saving vs pooled-EDF": saving,
                 })
             st.dataframe(pd.DataFrame(rows_sum), use_container_width=True, hide_index=True)
-
-        # ── Full detailed results (version 3 style) ───────────────────────
-        st.divider()
-        st.subheader("Detailed Results — All Policies")
-
-        # Reconstruct results dict for _render_detailed (same order as all_policies)
-        results_dict = {}
-        for pname, data in all_policies:
-            if data:
-                results_dict[pname] = (data["stats"], data["df_all"], data.get("hists", []))
-
-        params_lead = dict(
-            early_min=pb_s.get("early_min", 3.0), early_max=pb_s.get("early_max", 10.0),
-            early_F=pb_s.get("early_F", "Lognormal (truncated)"),
-            early_params=pb_s.get("early_params", {"mean":7.0,"sd":4.0}),
-            late_min=pb_s.get("late_min", 3.0), late_max=pb_s.get("late_max", 10.0),
-            late_F=pb_s.get("late_F", "Lognormal (truncated)"),
-            late_params=pb_s.get("late_params", {"mean":7.0,"sd":4.0}),
-        )
-        _render_detailed(results_dict, T0_s, T_s, nr_s, params_lead)
 
