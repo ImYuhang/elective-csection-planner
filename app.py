@@ -2,9 +2,9 @@
 app.py — Elective C-Section Planning Interface (version 5 Mar 23, 2026)
 
 Tab 1 : Sequential policy simulation
-          EDF (Pooled) vs Optimal Hybrid-EDF(μᴱ) for each specified μᴱ.
-          Three metrics per comparison: abandonment fractions, case losses,
-          total abandonment cost (+ cost-savings delta).
+          pooled-EDF vs Optimal dedicated-EDF(μᴱ) for each specified μᴱ.
+          Three metrics per comparison: case-loss fractions, case losses,
+          total case-loss cost (+ cost-savings delta).
           User confirms before each new μᴱ is run.
 
 Tab 2 : Summary
@@ -82,7 +82,7 @@ def _session_to_zip() -> bytes:
     Structure:
       config.json           — scalar settings + pooled_mu_E
       saved_traces.json     — the N baseline PatientTrace sequences
-      edf_baseline/         — EDF pooled policy files
+      edf_baseline/         — pooled-EDF policy files
       result_<mu>/info.json + hyb/ — Hybrid data per μᴱ
     """
     buf = io.BytesIO()
@@ -466,7 +466,7 @@ def _gamma_sweep_on_traces(saved_traces, mu_E, pooled_mu_E, gc, pb, s0, T, T0):
 def _run_edf_and_first_hybrid(mu_E, gc, label):
     """
     1. Generate N traces from baseline params (no μᴱ adjustment).
-    2. Run EDF pooled on each → save tab1_edf and tab1_saved_traces.
+    2. Run pooled-EDF on each → save tab1_edf and tab1_saved_traces.
     3. γ* search + Hybrid results in ONE pass using saved traces with
        early lead times shifted by (mu_E − pooled_mu_E).
     """
@@ -534,7 +534,7 @@ def _ann_headcounts(lE, lL):
 def _policy_metrics(data: Dict, ann_E: float, ann_L: float, cE: float, cL: float,
                     slot_reward: float = 0.0):
     """Return (pE, pL, pE_sd, pL_sd, loss_E, loss_L, cost, cost_sd) from a stored data dict.
-    slot_reward: pre-computed v×Nᴱ×52 (display) or v×Nᴱ×(T−T₀) (search), subtracted from cost for Hybrid-EDF only.
+    slot_reward: pre-computed v×Nᴱ×52 (display) or v×Nᴱ×(T−T₀) (search), subtracted from cost for dedicated-EDF only.
     Nᴱ = floor(γ*×N) is used throughout (floor rounding)."""
     pE, pL       = data["pE"], data["pL"]
     pE_sd, pL_sd = data["pE_sd"], data["pL_sd"]
@@ -551,23 +551,23 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
                        T: float = 500.0, T0: float = 100.0):
     """
     Four charts for one (EDF, Hybrid(μᴱ)) pair:
-      Row 1 — abandonment fractions | case losses
-      Row 2 — total abandonment cost (absolute) | cost savings vs EDF (delta)
+      Row 1 — case-loss fractions | case losses
+      Row 2 — total case-loss cost (absolute) | cost savings vs EDF (delta)
     """
     mu_E   = hyb_data["mu_E"]
     gstar  = hyb_data["gamma_star"]
     NE_star = gstar * N
     NL_star = N - NE_star
-    lbl_h  = f"Optimal Hybrid-EDF (μᴱ={mu_E:.0f}, γ*={gstar:.3f})"
+    lbl_h  = f"Optimal dedicated-EDF (μᴱ={mu_E:.0f}, γ*={gstar:.3f})"
 
     ann_E, ann_L = _ann_headcounts(lE, lL)
     pE_e, pL_e, pE_e_sd, pL_e_sd, lE_e, lL_e, cost_e, cost_e_sd = _policy_metrics(edf_data, ann_E, ann_L, cE, cL)
     _slot_reward_h = v * NE_star * 52
     pE_h, pL_h, pE_h_sd, pL_h_sd, lE_h, lL_h, cost_h, cost_h_sd = _policy_metrics(hyb_data, ann_E, ann_L, cE, cL, slot_reward=_slot_reward_h)
-    aband_cost_h = cE * lE_h + cL * lL_h  # Hybrid abandonment cost (no slot reward)
+    aband_cost_h = cE * lE_h + cL * lL_h  # Hybrid case-loss cost (no slot reward)
 
     # Short x-axis labels (policies); cohort = bar colour
-    x_labels = ["EDF (Pooled)", f"Hybrid (μᴱ={mu_E:.0f})"]
+    x_labels = ["pooled-EDF", f"dedicated-EDF (μᴱ={mu_E:.0f})"]
     COLOR_E = "#4878d0"
     COLOR_L = "#ee854a"
     _leg = dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1)
@@ -576,7 +576,7 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
     c1, c2 = st.columns(2)
 
     with c1:
-        st.markdown("**Abandonment fractions**")
+        st.markdown("**Case-loss fractions**")
         fig = go.Figure()
         fig.add_trace(go.Bar(name="Early engagers", x=x_labels,
                              y=[pE_e*100, pE_h*100],
@@ -586,7 +586,7 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
                              y=[pL_e*100, pL_h*100],
                              error_y=dict(type='data', array=[pL_e_sd*100, pL_h_sd*100], visible=True),
                              marker_color=COLOR_L))
-        fig.update_layout(barmode="group", yaxis_title="Abandonment fraction (%)",
+        fig.update_layout(barmode="group", yaxis_title="Case-loss fraction (%)",
                           height=360, margin=dict(t=10,b=30), legend=_leg)
         st.plotly_chart(fig, use_container_width=True, key=f"frac_{mu_E}")
 
@@ -610,7 +610,7 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
     c3, c4 = st.columns(2)
 
     with c3:
-        st.markdown(f"**Total abandonment cost  (cᴱ={cE:.2f}, cᴸ={cL:.2f})**")
+        st.markdown(f"**Total case-loss cost  (cᴱ={cE:.2f}, cᴸ={cL:.2f})**")
         fig3 = go.Figure()
         fig3.add_trace(go.Bar(name="Early component", x=x_labels,
                               y=[cE*lE_e, cE*lE_h],
@@ -621,7 +621,7 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
                               error_y=dict(type='data', array=[cL*pL_e_sd*ann_L, cL*pL_h_sd*ann_L], visible=True),
                               marker_color=COLOR_L))
         fig3.update_layout(barmode="stack",
-                           yaxis_title="Annual abandonment cost",
+                           yaxis_title="Annual case-loss cost",
                            height=360, margin=dict(t=10,b=30), legend=_leg)
         st.plotly_chart(fig3, use_container_width=True, key=f"cost_{mu_E}")
 
@@ -632,7 +632,7 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
         color_h = "#2e7d32" if savings >= 0 else "#c62828"
         sign    = "↓" if savings >= 0 else "↑"
         st.markdown(
-            f"**Total cost C(γ): EDF vs Hybrid-EDF** &nbsp;&nbsp;"
+            f"**Total cost C(γ): EDF vs dedicated-EDF** &nbsp;&nbsp;"
             f'<span style="color:{color_h};font-size:1.05em">'
             f'{sign} {abs(savings):.1f} cost units/yr ({abs(pct):.1f}%)</span>',
             unsafe_allow_html=True,
@@ -668,14 +668,14 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
                 f"Case losses — Early (52×λᴱ={ann_E:.0f}/yr)",
                 f"Case losses — Late  (52×λᴸ={ann_L:.0f}/yr)",
                 "Case losses — Total",
-                "Abandonment cost (cost units/yr)",
+                "Case-loss cost (cost units/yr)",
                 "Total cost C(γ) (cost units/yr)",
                 "Avg queue wait — Early served (weeks)",
                 "Avg slack — Early served (weeks)",
                 "Nᴱ — reserved Early slots",
                 "Nᴸ — reserved Late slots",
             ],
-            "EDF (Pooled)": [
+            "pooled-EDF": [
                 f"{pE_e*100:.2f} ± {pE_e_sd*100:.2f}",
                 f"{pL_e*100:.2f} ± {pL_e_sd*100:.2f}",
                 f"{lE_e:.1f} ± {pE_e_sd*ann_E:.1f}",
@@ -722,8 +722,8 @@ def _render_detailed(results: dict, warmup_T: float, T_max_: float, n_runs_: int
         """Strip γ* from policy name for use in figure subplot titles."""
         m = _re.search(r"μᴱ=([\d.]+)", pname)
         if m:
-            return f"Hybrid (μᴱ={float(m.group(1)):.0f})"
-        return pname  # EDF (Pooled)
+            return f"dedicated-EDF (μᴱ={float(m.group(1)):.0f})"
+        return pname  # pooled-EDF
 
     def _scroll_chart(fig, height_px):
         """Render a wide Plotly figure inside a horizontally scrollable div."""
@@ -739,7 +739,7 @@ def _render_detailed(results: dict, warmup_T: float, T_max_: float, n_runs_: int
     # γ* callouts
     _N_det = int(st.session_state.get("tab1_params_base", {}).get("N", 18))
     for pname in policy_names:
-        if "Optimal Hybrid-EDF" not in pname: continue
+        if "Optimal dedicated-EDF" not in pname: continue
         m = _re.search(r"γ\*=([\d.]+)", pname)
         if m:
             _gs = float(m.group(1))
@@ -775,164 +775,6 @@ div > div[data-testid="stVerticalBlock"] {
         {'service_rate':'Service rate','abandon_rate':'Abandon rate','util_1':'Utilisation'},
         _fmt_pct), use_container_width=True)
 
-    st.subheader("Wait times & slack by cohort × outcome")
-    for label, keys, lmap in [
-        ("**A) Early served**",
-         ['es_wait_active','es_slack','es_wait_total'],
-         {'es_wait_active':'Wait active','es_slack':'Slack','es_wait_total':'Wait total'}),
-        ("**B) Early abandoned**",
-         ['ea_wait_active','ea_wait_total'],
-         {'ea_wait_active':'Wait active (to deadline)','ea_wait_total':'Wait total'}),
-        ("**C) Late served**",
-         ['ls_wait_active','ls_slack','ls_wait_total'],
-         {'ls_wait_active':'Wait active','ls_slack':'Slack','ls_wait_total':'Wait total'}),
-        ("**D) Late abandoned**",
-         ['la_wait_active','la_wait_total'],
-         {'la_wait_active':'Wait active (to deadline)','la_wait_total':'Wait total'}),
-    ]:
-        st.markdown(label)
-        st.dataframe(_ctable(keys, lmap, _fmt_num), use_container_width=True)
-
-    st.markdown("**Aggregated by cohort**")
-    st.dataframe(_ctable(
-        ['e_wait_active','e_slack','e_wait_total','l_wait_active','l_slack','l_wait_total'],
-        {'e_wait_active':'Early: Wait active','e_slack':'Early: Slack','e_wait_total':'Early: Wait total',
-         'l_wait_active':'Late: Wait active','l_slack':'Late: Slack','l_wait_total':'Late: Wait total'},
-        _fmt_num), use_container_width=True)
-
-    st.markdown("**Composition**")
-    st.dataframe(_ctable(
-        ['prop_served_early','prop_aband_early','prop_served_late','prop_aband_late','aband_ratio_e_over_l'],
-        {'prop_served_early':'Served among Early','prop_aband_early':'Abandoned among Early',
-         'prop_served_late':'Served among Late','prop_aband_late':'Abandoned among Late',
-         'aband_ratio_e_over_l':'Abandonment ratio (E/L)'},
-        _fmt_pct), use_container_width=True)
-
-    _W = 340   # fixed pixel width per policy subplot
-
-    with st.expander("Queue wait (active) histogram"):
-        from plotly.subplots import make_subplots as _msp
-        _fig = _msp(rows=1, cols=n_pol, subplot_titles=short_names)
-        for _i, _pname in enumerate(policy_names, start=1):
-            _, _df, _ = results[_pname]
-            _show = (_i == 1)
-            for _coh, _col in [("Early", "#4878d0"), ("Late", "#aec7e8")]:
-                _v = _df[(_df.cohort == _coh) & (_df.status == "SERVED")]["wait_active"].dropna().to_numpy() * 7
-                _fig.add_trace(go.Histogram(x=_v, name=_coh, marker_color=_col,
-                                            nbinsx=50, opacity=0.75, showlegend=_show),
-                               row=1, col=_i)
-            _fig.update_xaxes(title_text="Active wait (days)", row=1, col=_i)
-        _fig.update_layout(barmode="overlay", height=340,
-                           width=max(700, n_pol * _W),
-                           margin=dict(t=50, b=30, l=50, r=20))
-        _scroll_chart(_fig, 340)
-
-    with st.expander("Slack histogram (served only)"):
-        from plotly.subplots import make_subplots as _msp
-        _fig = _msp(rows=1, cols=n_pol, subplot_titles=short_names)
-        for _i, _pname in enumerate(policy_names, start=1):
-            _, _df, _ = results[_pname]
-            _show = (_i == 1)
-            for _coh, _col in [("Early", "#4878d0"), ("Late", "#aec7e8")]:
-                _v = _df[(_df.cohort == _coh) & (_df.status == "SERVED")]["slack"].dropna().to_numpy() * 7
-                _fig.add_trace(go.Histogram(x=_v, name=_coh, marker_color=_col,
-                                            nbinsx=50, opacity=0.75, showlegend=_show),
-                               row=1, col=_i)
-            _fig.update_xaxes(title_text="Residual slack (days)", row=1, col=_i)
-        _fig.update_layout(barmode="overlay", height=340,
-                           width=max(700, n_pol * _W),
-                           margin=dict(t=50, b=30, l=50, r=20))
-        _scroll_chart(_fig, 340)
-
-    with st.expander("System size N(t)"):
-        from plotly.subplots import make_subplots as _msp
-        grid_n = 600; t_grid = np.linspace(0.0, T_max_, grid_n)
-        def _eval_h(hist, tg):
-            if not hist: return np.zeros_like(tg)
-            times = np.array([x for x,_ in hist]); vals = np.array([v for _,v in hist])
-            return vals[np.clip(np.searchsorted(times, tg, side='right')-1, 0, len(vals)-1)]
-
-        st.markdown("**Mean ± SD across runs**")
-        _fig = _msp(rows=1, cols=n_pol, subplot_titles=short_names)
-        for _i, _pname in enumerate(policy_names, start=1):
-            _, _, _hists = results[_pname]
-            if _hists:
-                M = np.vstack([_eval_h(h, t_grid) for h in _hists])
-                mn = M.mean(0); sd = M.std(0, ddof=0)
-                _show = (_i == 1)
-                _fig.add_trace(go.Scatter(x=t_grid, y=mn+sd, mode='lines',
-                                          line=dict(width=0), showlegend=False), row=1, col=_i)
-                _fig.add_trace(go.Scatter(x=t_grid, y=np.maximum(0, mn-sd), mode='lines',
-                                          fill='tonexty', fillcolor='rgba(100,149,237,0.25)',
-                                          line=dict(width=0), name='±1 SD', showlegend=_show), row=1, col=_i)
-                _fig.add_trace(go.Scatter(x=t_grid, y=mn, mode='lines',
-                                          line=dict(color='red'), name='Mean N(t)', showlegend=_show), row=1, col=_i)
-                _fig.add_vline(x=warmup_T, line_dash="dash", line_color="red",
-                               annotation_text="Warm-up end", row=1, col=_i)
-            _fig.update_xaxes(title_text="Time (weeks)", row=1, col=_i)
-            _fig.update_yaxes(title_text="N(t)", row=1, col=_i)
-        _fig.update_layout(height=320, width=max(700, n_pol * _W),
-                           margin=dict(t=50, b=30, l=50, r=20))
-        _scroll_chart(_fig, 320)
-        st.caption("Shaded = ±1 SD across runs.")
-
-        st.markdown("**Last run (sample path)**")
-        _fig2 = _msp(rows=1, cols=n_pol, subplot_titles=short_names)
-        for _i, _pname in enumerate(policy_names, start=1):
-            _, _, _hists = results[_pname]
-            if _hists:
-                _hdf = pd.DataFrame(_hists[-1], columns=['time', 'system_size'])
-                _fig2.add_trace(go.Scatter(x=_hdf['time'], y=_hdf['system_size'],
-                                           mode='lines', line_shape='hv',
-                                           line=dict(color='#4878d0'), showlegend=False),
-                                row=1, col=_i)
-                _fig2.add_vline(x=warmup_T, line_dash="dash", line_color="red",
-                                annotation_text="Warm-up end", row=1, col=_i)
-            _fig2.update_xaxes(title_text="Time (weeks)", row=1, col=_i)
-            _fig2.update_yaxes(title_text="N(t)", row=1, col=_i)
-        _fig2.update_layout(height=300, width=max(700, n_pol * _W),
-                            margin=dict(t=50, b=30, l=50, r=20))
-        _scroll_chart(_fig2, 300)
-
-    with st.expander("Lead-time & service-time distributions"):
-        e_min = params_lead["early_min"]; e_max = params_lead["early_max"]
-        e_F   = params_lead["early_F"];   e_p   = params_lead["early_params"]
-        l_min = params_lead["late_min"];  l_max = params_lead["late_max"]
-        l_F   = params_lead["late_F"];    l_p   = params_lead["late_params"]
-        xs_e, pdf_e, _ = _pdf_cdf_lead_grid(e_min, e_max, e_F, e_p)
-        xs_l, pdf_l, _ = _pdf_cdf_lead_grid(l_min, l_max, l_F, l_p)
-        col1, col2 = st.columns(2)
-        with col1:
-            fe = px.line(pd.DataFrame({"T":xs_e,"pdf":pdf_e}), x="T", y="pdf",
-                         title="Theoretical PDF — Early lead time",
-                         labels={"T":"Lead time (days)","pdf":"pdf"})
-            st.plotly_chart(fe, use_container_width=True, key="det_pdf_e")
-        with col2:
-            fl = px.line(pd.DataFrame({"T":xs_l,"pdf":pdf_l}), x="T", y="pdf",
-                         title="Theoretical PDF — Late lead time",
-                         labels={"T":"Lead time (days)","pdf":"pdf"})
-            st.plotly_chart(fl, use_container_width=True, key="det_pdf_l")
-
-        first_pname = policy_names[0]
-        _, df_first, _ = results[first_pname]
-        st.markdown(f"**Empirical PDFs** (from *{first_pname}*)")
-        _cidx = [0]
-        def _pdf_emp(series, title, xlab):
-            s = series.dropna().to_numpy()
-            if s.size == 0: st.info(f"No data: {title}"); return
-            fig = go.Figure()
-            fig.add_trace(go.Histogram(x=s, histnorm="probability density", nbinsx=60))
-            fig.update_layout(title=title, xaxis_title=xlab, yaxis_title="pdf",
-                              bargap=0.05, height=260, margin=dict(t=30,b=20))
-            st.plotly_chart(fig, use_container_width=True, key=f"det_emp_{_cidx[0]}")
-            _cidx[0] += 1
-        col1, col2 = st.columns(2)
-        with col1:
-            _pdf_emp(df_first.loc[df_first.cohort=="Early","lead_time"] * 7, "Empirical — Early lead time","Lead time (days)")
-            _pdf_emp(df_first.loc[df_first.cohort=="Early","svc"],       "Empirical — Early service time","Service time (slots)")
-        with col2:
-            _pdf_emp(df_first.loc[df_first.cohort=="Late","lead_time"] * 7,  "Empirical — Late lead time","Lead time (days)")
-            _pdf_emp(df_first.loc[df_first.cohort=="Late","svc"],        "Empirical — Late service time","Service time (slots)")
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1013,16 +855,16 @@ def _generate_html_report() -> str:
                  f"Equity tolerance Δ={Delta_*100:.1f}%</p>")
 
     # ── Per-μᴱ comparison sections ─────────────────────────────────────────
-    x_lbl = ["EDF (Pooled)"]
+    x_lbl = ["pooled-EDF"]
     for res in results_list_:
-        x_lbl.append(f"Hybrid (μᴱ={res['mu_E']:.0f})")
+        x_lbl.append(f"dedicated-EDF (μᴱ={res['mu_E']:.0f})")
 
     for res in results_list_:
         mu_E_ = res["mu_E"]; gstar_ = res["gamma_star"]
         hyb_  = res["hyb"]
-        lbl_h = f"Optimal Hybrid-EDF (μᴱ={mu_E_:.0f}, γ*={gstar_:.3f})"
+        lbl_h = f"Optimal dedicated-EDF (μᴱ={mu_E_:.0f}, γ*={gstar_:.3f})"
         _NE_html_r = gstar_ * _N_html; _NL_html_r = _N_html - _NE_html_r
-        parts.append(f'<div class="section"><h2>EDF (Pooled) vs {lbl_h}</h2>')
+        parts.append(f'<div class="section"><h2>pooled-EDF vs {lbl_h}</h2>')
         parts.append(f'<div class="badge">{lbl_h} — γ* = {gstar_:.3f} &nbsp;|&nbsp; '
                      f'N<sup>E</sup> = {_NE_html_r:.2f} &nbsp; N<sup>L</sup> = {_NL_html_r:.2f}</div>')
 
@@ -1031,7 +873,7 @@ def _generate_html_report() -> str:
         _slot_rw_html = v_ * _NE_html_r * 52
         pE_h, pL_h, pE_h_sd, pL_h_sd, lE_h, lL_h, cost_h, cost_h_sd = \
             _policy_metrics(hyb_, ann_E_, ann_L_, cE_, cL_, slot_reward=_slot_rw_html)
-        x2 = ["EDF (Pooled)", f"Hybrid (μᴱ={mu_E_:.0f})"]
+        x2 = ["pooled-EDF", f"dedicated-EDF (μᴱ={mu_E_:.0f})"]
 
         fig_frac = go.Figure()
         fig_frac.add_trace(go.Bar(name="Early engagers", x=x2,
@@ -1042,8 +884,8 @@ def _generate_html_report() -> str:
                                   y=[pL_e*100, pL_h*100],
                                   error_y=dict(type='data', array=[pL_e_sd*100, pL_h_sd*100], visible=True),
                                   marker_color=COLOR_L))
-        fig_frac.update_layout(barmode="group", yaxis_title="Abandonment fraction (%)",
-                               title="Abandonment fractions", height=360, width=640, legend=_leg)
+        fig_frac.update_layout(barmode="group", yaxis_title="Case-loss fraction (%)",
+                               title="Case-loss fractions", height=360, width=640, legend=_leg)
 
         fig_loss = go.Figure()
         fig_loss.add_trace(go.Bar(name="Early engagers", x=x2,
@@ -1058,7 +900,7 @@ def _generate_html_report() -> str:
                                yaxis_title="Estimated annual case losses",
                                title="Estimated annual case losses", height=360, width=640, legend=_leg)
 
-        aband_cost_h_ = cE_ * lE_h + cL_ * lL_h  # Hybrid abandonment cost (no slot reward)
+        aband_cost_h_ = cE_ * lE_h + cL_ * lL_h  # Hybrid case-loss cost (no slot reward)
         savings = cost_e - cost_h
         pct     = 100*savings/cost_e if cost_e > 0 else 0.0
         sav_sd  = math.sqrt(cost_e_sd**2 + cost_h_sd**2)
@@ -1073,8 +915,8 @@ def _generate_html_report() -> str:
                                   y=[cL_*lL_e, cL_*lL_h],
                                   error_y=dict(type='data', array=[cL_*pL_e_sd*ann_L_, cL_*pL_h_sd*ann_L_], visible=True),
                                   marker_color=COLOR_L))
-        fig_cost.update_layout(barmode="stack", yaxis_title="Annual abandonment cost (cost units/yr)",
-                               title=f"Total abandonment cost  (cᴱ={cE_:.2f}, cᴸ={cL_:.2f})",
+        fig_cost.update_layout(barmode="stack", yaxis_title="Annual case-loss cost (cost units/yr)",
+                               title=f"Total case-loss cost  (cᴱ={cE_:.2f}, cᴸ={cL_:.2f})",
                                height=360, width=640, legend=_leg)
 
         fig_sav = go.Figure()
@@ -1086,7 +928,7 @@ def _generate_html_report() -> str:
                                text=f"{sign_s}{abs(savings):.1f} cost units/yr ({abs(pct):.1f}%)",
                                showarrow=False, font=dict(size=12, color=color_s))
         fig_sav.update_layout(yaxis_title="Annual total cost C(γ) (cost units/yr)", showlegend=False,
-                              title=f"Total cost C(γ): EDF vs Hybrid-EDF (v={v_:.3f})",
+                              title=f"Total cost C(γ): EDF vs dedicated-EDF (v={v_:.3f})",
                               height=360, width=640)
 
         parts.append('<div class="row2">')
@@ -1100,16 +942,16 @@ def _generate_html_report() -> str:
     # ── Summary section ─────────────────────────────────────────────────────
     if results_list_:
         parts.append('<div class="section"><h2>Summary — All Policies</h2>')
-        all_pol = [("EDF (Pooled)", edf_data_)] + \
-                  [(f"Hybrid (μᴱ={r['mu_E']:.0f}, γ*={r['gamma_star']:.3f})", r["hyb"])
+        all_pol = [("pooled-EDF", edf_data_)] + \
+                  [(f"dedicated-EDF (μᴱ={r['mu_E']:.0f}, γ*={r['gamma_star']:.3f})", r["hyb"])
                    for r in sorted(results_list_, key=lambda r: r["mu_E"])]
         mu_labels_  = [p for p, _ in all_pol]
-        fig_labels_ = ["EDF (Pooled)"] + [
-            f"Hybrid (μᴱ={r['mu_E']:.0f})"
+        fig_labels_ = ["pooled-EDF"] + [
+            f"dedicated-EDF (μᴱ={r['mu_E']:.0f})"
             for r in sorted(results_list_, key=lambda r: r["mu_E"])]
         metrics_   = []
         for pname, data in all_pol:
-            if "Hybrid" in pname:
+            if "dedicated-EDF" in pname:
                 _gstar_html = data.get("gamma_star", 0.0)
                 _NE_s = _gstar_html * _N_html; _NL_s = _N_html - _NE_s
                 _slot_rw_s  = v_ * _NE_s * 52
@@ -1117,7 +959,7 @@ def _generate_html_report() -> str:
                 _slot_rw_s = 0.0; _NE_s = None; _NL_s = None
             pE, pL, pE_sd, pL_sd, lossE, lossL, cost, cost_sd = \
                 _policy_metrics(data, ann_E_, ann_L_, cE_, cL_, slot_reward=_slot_rw_s)
-            aband_cost_ = cE_ * lossE + cL_ * lossL  # pure abandonment cost (no slot reward)
+            aband_cost_ = cE_ * lossE + cL_ * lossL  # pure case-loss cost (no slot reward)
             _st = data.get("stats")
             _ewa = float(_st.loc["es_wait_active", "mean"]) if (_st is not None and "es_wait_active" in _st.index) else float("nan")
             _ewa_sd = float(_st.loc["es_wait_active", "std"]) if (_st is not None and "es_wait_active" in _st.index) else float("nan")
@@ -1138,8 +980,8 @@ def _generate_html_report() -> str:
                                 y=[m["pL"]*100 for m in metrics_],
                                 error_y=dict(type='data', array=[m["pL_sd"]*100 for m in metrics_], visible=True),
                                 marker_color=COLOR_L))
-        fig_s1.update_layout(barmode="group", yaxis_title="Abandonment fraction (%)",
-                             title="Abandonment fractions — all policies", height=400, legend=_leg)
+        fig_s1.update_layout(barmode="group", yaxis_title="Case-loss fraction (%)",
+                             title="Case-loss fractions — all policies", height=400, legend=_leg)
 
         fig_s2 = go.Figure()
         fig_s2.add_trace(go.Bar(name="Early", x=fig_labels_,
@@ -1159,8 +1001,8 @@ def _generate_html_report() -> str:
                                 y=[cE_*m["lossE"] for m in metrics_], marker_color=COLOR_E))
         fig_s3.add_trace(go.Bar(name="Late component", x=fig_labels_,
                                 y=[cL_*m["lossL"] for m in metrics_], marker_color=COLOR_L))
-        fig_s3.update_layout(barmode="stack", yaxis_title="Annual abandonment cost (cost units/yr)",
-                             title=f"Total abandonment cost — all policies (cᴱ={cE_:.2f}, cᴸ={cL_:.2f})",
+        fig_s3.update_layout(barmode="stack", yaxis_title="Annual case-loss cost (cost units/yr)",
+                             title=f"Total case-loss cost — all policies (cᴱ={cE_:.2f}, cᴸ={cL_:.2f})",
                              height=400, legend=_leg)
 
         fig_s4 = go.Figure()
@@ -1183,7 +1025,7 @@ def _generate_html_report() -> str:
         rows_sum_ = []
         for m in metrics_:
             saving = (f"{edf_cost_base_ - m['cost']:+.1f}"
-                      if "Hybrid" in m["name"] else "—")
+                      if "dedicated-EDF" in m["name"] else "—")
             _ewa_str = f"{m['es_wait_active']:.3f} ± {m['es_wait_active_sd']:.3f}" if not math.isnan(m['es_wait_active']) else "—"
             _esl_str = f"{m['es_slack']:.3f} ± {m['es_slack_sd']:.3f}" if not math.isnan(m['es_slack']) else "—"
             rows_sum_.append({
@@ -1196,7 +1038,7 @@ def _generate_html_report() -> str:
                 "Nᴸ": f"{m['NL']:.2f}" if m["NL"] is not None else "—",
                 "Avg queue wait — Early served (wks)": _ewa_str,
                 "Avg slack — Early served (wks)": _esl_str,
-                "Abandonment cost (cost units/yr)": f"{m['aband_cost']:.1f} ± {m['cost_sd']:.1f}",
+                "Case-loss cost (cost units/yr)": f"{m['aband_cost']:.1f} ± {m['cost_sd']:.1f}",
                 "Total cost C(γ) (cost units/yr)": f"{m['cost']:.1f} ± {m['cost_sd']:.1f}",
                 "Cost saving vs EDF": saving,
             })
@@ -1206,30 +1048,23 @@ def _generate_html_report() -> str:
 
     # ── Detailed Results — All Policies ─────────────────────────────────────
     if results_list_:
-        from plotly.subplots import make_subplots as _msp
-        all_pol_det = [("EDF (Pooled)", edf_data_)] + \
-                      [(f"Optimal Hybrid-EDF (μᴱ={r['mu_E']:.0f}, γ*={r['gamma_star']:.3f})", r["hyb"])
+        all_pol_det = [("pooled-EDF", edf_data_)] + \
+                      [(f"Optimal dedicated-EDF (μᴱ={r['mu_E']:.0f}, γ*={r['gamma_star']:.3f})", r["hyb"])
                        for r in sorted(results_list_, key=lambda r: r["mu_E"])]
-        results_det = {pname: (data["stats"], data["df_all"], data.get("hists", []))
+        results_det = {pname: data["stats"]
                        for pname, data in all_pol_det if data}
         policy_names_det = list(results_det.keys())
-        short_titles_det = ["EDF"] + [
-            f"Hybrid (μᴱ={r['mu_E']:.0f})"
-            for r in sorted(results_list_, key=lambda r: r["mu_E"])]
-        n_pol_det = len(policy_names_det)
-        _W_det = 380
 
         parts.append('<div class="section"><h2>Detailed Results — All Policies</h2>')
 
         # Primary metrics table
         def _fmt_pct_h(m, s): return "—" if pd.isna(m) else f"{m:.2%} ± {s:.2%}"
-        def _fmt_num_h(m, s): return "—" if pd.isna(m) else f"{m:.3f} ± {s:.3f}"
         def _ctable_h(keys, labels, fmt_fn):
             rows = {}
             for k in keys:
                 rows[labels[k]] = {
-                    pn: fmt_fn(results_det[pn][0].loc[k, "mean"], results_det[pn][0].loc[k, "std"])
-                    for pn in policy_names_det if k in results_det[pn][0].index}
+                    pn: fmt_fn(results_det[pn].loc[k, "mean"], results_det[pn].loc[k, "std"])
+                    for pn in policy_names_det if k in results_det[pn].index}
             return pd.DataFrame(rows).T
 
         parts.append(f"<h3>Primary metrics (mean ± SD over {nr_} runs)</h3>")
@@ -1237,131 +1072,6 @@ def _generate_html_report() -> str:
             ["service_rate", "abandon_rate", "util_1"],
             {"service_rate": "Service rate", "abandon_rate": "Abandon rate", "util_1": "Utilisation"},
             _fmt_pct_h)))
-
-        parts.append("<h3>Wait times &amp; slack by cohort &times; outcome</h3>")
-        for _sec_label, _keys, _lmap in [
-            ("<b>A) Early served</b>",
-             ["es_wait_active", "es_slack", "es_wait_total"],
-             {"es_wait_active": "Wait active", "es_slack": "Slack", "es_wait_total": "Wait total"}),
-            ("<b>B) Early abandoned</b>",
-             ["ea_wait_active", "ea_wait_total"],
-             {"ea_wait_active": "Wait active (to deadline)", "ea_wait_total": "Wait total"}),
-            ("<b>C) Late served</b>",
-             ["ls_wait_active", "ls_slack", "ls_wait_total"],
-             {"ls_wait_active": "Wait active", "ls_slack": "Slack", "ls_wait_total": "Wait total"}),
-            ("<b>D) Late abandoned</b>",
-             ["la_wait_active", "la_wait_total"],
-             {"la_wait_active": "Wait active (to deadline)", "la_wait_total": "Wait total"}),
-        ]:
-            parts.append(f"<p>{_sec_label}</p>")
-            parts.append(_tbl_metrics(_ctable_h(_keys, _lmap, _fmt_num_h)))
-
-        parts.append("<p><b>Aggregated by cohort</b></p>")
-        parts.append(_tbl_metrics(_ctable_h(
-            ["e_wait_active", "e_slack", "e_wait_total", "l_wait_active", "l_slack", "l_wait_total"],
-            {"e_wait_active": "Early: Wait active", "e_slack": "Early: Slack", "e_wait_total": "Early: Wait total",
-             "l_wait_active": "Late: Wait active",  "l_slack": "Late: Slack",  "l_wait_total": "Late: Wait total"},
-            _fmt_num_h)))
-
-        parts.append("<p><b>Composition</b></p>")
-        parts.append(_tbl_metrics(_ctable_h(
-            ["prop_served_early", "prop_aband_early", "prop_served_late", "prop_aband_late", "aband_ratio_e_over_l"],
-            {"prop_served_early": "Served among Early", "prop_aband_early": "Abandoned among Early",
-             "prop_served_late": "Served among Late",   "prop_aband_late": "Abandoned among Late",
-             "aband_ratio_e_over_l": "Abandonment ratio (E/L)"},
-            _fmt_pct_h)))
-
-        def _binned_bar(fig, df, col, filter_mask=None, n_bins=50, row=1, subplot_col=1, show_legend=True, scale=1.0):
-            """Add pre-binned histogram traces (go.Bar) to avoid embedding raw data.
-            scale: multiply values before binning (e.g. 7 to convert weeks→days)."""
-            for _coh, _clr in [("Early", "#4878d0"), ("Late", "#aec7e8")]:
-                mask = df.cohort == _coh
-                if filter_mask is not None:
-                    mask = mask & filter_mask
-                _v = df[mask][col].dropna().to_numpy() * scale
-                if _v.size == 0:
-                    continue
-                counts, edges = np.histogram(_v, bins=n_bins)
-                centres = 0.5 * (edges[:-1] + edges[1:])
-                fig.add_trace(go.Bar(x=centres, y=counts, name=_coh, marker_color=_clr,
-                                     opacity=0.75, showlegend=show_legend,
-                                     width=(edges[1] - edges[0]) * 0.95),
-                              row=row, col=subplot_col)
-
-        # Queue wait histogram
-        fig_wh = _msp(rows=1, cols=n_pol_det, subplot_titles=short_titles_det)
-        for _i, _pname in enumerate(policy_names_det, start=1):
-            _, _df, _ = results_det[_pname]
-            _binned_bar(fig_wh, _df, "wait_active", show_legend=(_i == 1), subplot_col=_i, scale=7,
-                        filter_mask=(_df.status == "SERVED"))
-            fig_wh.update_xaxes(title_text="Active wait (days)", row=1, col=_i)
-        fig_wh.update_layout(barmode="overlay", height=360,
-                             width=max(800, n_pol_det * _W_det),
-                             title="Queue wait (active) histogram",
-                             margin=dict(t=60, b=40, l=50, r=20))
-        parts.append(_scroll_fig_html(fig_wh))
-
-        # Slack histogram
-        fig_sh = _msp(rows=1, cols=n_pol_det, subplot_titles=short_titles_det)
-        for _i, _pname in enumerate(policy_names_det, start=1):
-            _, _df, _ = results_det[_pname]
-            _binned_bar(fig_sh, _df, "slack", filter_mask=(_df.status == "SERVED"),
-                        show_legend=(_i == 1), subplot_col=_i, scale=7)
-            fig_sh.update_xaxes(title_text="Residual slack (days)", row=1, col=_i)
-        fig_sh.update_layout(barmode="overlay", height=360,
-                             width=max(800, n_pol_det * _W_det),
-                             title="Slack histogram (served only)",
-                             margin=dict(t=60, b=40, l=50, r=20))
-        parts.append(_scroll_fig_html(fig_sh))
-
-        # N(t) mean ± SD
-        grid_n_h = 600; t_grid_h = np.linspace(0.0, T_, grid_n_h)
-        def _eval_h_html(hist, tg):
-            if not hist: return np.zeros_like(tg)
-            times = np.array([x for x, _ in hist]); vals = np.array([v for _, v in hist])
-            return vals[np.clip(np.searchsorted(times, tg, side="right") - 1, 0, len(vals) - 1)]
-
-        fig_nt = _msp(rows=1, cols=n_pol_det, subplot_titles=short_titles_det)
-        for _i, _pname in enumerate(policy_names_det, start=1):
-            _, _, _hists = results_det[_pname]
-            if _hists:
-                M = np.vstack([_eval_h_html(h, t_grid_h) for h in _hists])
-                mn = M.mean(0); sd = M.std(0, ddof=0)
-                _show = (_i == 1)
-                fig_nt.add_trace(go.Scatter(x=t_grid_h, y=mn + sd, mode="lines",
-                                            line=dict(width=0), showlegend=False), row=1, col=_i)
-                fig_nt.add_trace(go.Scatter(x=t_grid_h, y=np.maximum(0, mn - sd), mode="lines",
-                                            fill="tonexty", fillcolor="rgba(100,149,237,0.25)",
-                                            line=dict(width=0), name="±1 SD", showlegend=_show), row=1, col=_i)
-                fig_nt.add_trace(go.Scatter(x=t_grid_h, y=mn, mode="lines",
-                                            line=dict(color="red"), name="Mean N(t)", showlegend=_show), row=1, col=_i)
-                fig_nt.add_vline(x=T0_, line_dash="dash", line_color="red",
-                                 annotation_text="Warm-up end", row=1, col=_i)
-            fig_nt.update_xaxes(title_text="Time (weeks)", row=1, col=_i)
-            fig_nt.update_yaxes(title_text="N(t)", row=1, col=_i)
-        fig_nt.update_layout(height=360, width=max(800, n_pol_det * _W_det),
-                             title="System size N(t) — mean ± SD",
-                             margin=dict(t=60, b=40, l=50, r=20))
-        parts.append(_scroll_fig_html(fig_nt))
-
-        # N(t) last run (sample path)
-        fig_nt2 = _msp(rows=1, cols=n_pol_det, subplot_titles=short_titles_det)
-        for _i, _pname in enumerate(policy_names_det, start=1):
-            _, _, _hists = results_det[_pname]
-            if _hists:
-                _hdf = pd.DataFrame(_hists[-1], columns=["time", "system_size"])
-                fig_nt2.add_trace(go.Scatter(x=_hdf["time"], y=_hdf["system_size"],
-                                             mode="lines", line_shape="hv",
-                                             line=dict(color="#4878d0"), showlegend=False),
-                                  row=1, col=_i)
-                fig_nt2.add_vline(x=T0_, line_dash="dash", line_color="red",
-                                  annotation_text="Warm-up end", row=1, col=_i)
-            fig_nt2.update_xaxes(title_text="Time (weeks)", row=1, col=_i)
-            fig_nt2.update_yaxes(title_text="N(t)", row=1, col=_i)
-        fig_nt2.update_layout(height=340, width=max(800, n_pol_det * _W_det),
-                              title="System size N(t) — last run (sample path)",
-                              margin=dict(t=60, b=40, l=50, r=20))
-        parts.append(_scroll_fig_html(fig_nt2))
 
         parts.append('</div>')
 
@@ -1378,9 +1088,9 @@ with tab1:
     st.header("Policy Simulation")
     st.markdown(
         "This tool compares two approaches to scheduling planned (elective) C-sections. "
-        "The **standard approach** (EDF Pooled) allocates all operating slots to a shared waiting list, "
+        "The **standard approach** (pooled-EDF) allocates all operating slots to a shared waiting list, "
         "giving priority to the patient whose planned delivery date is soonest. "
-        "The **reservation approach** (Optimal Hybrid-EDF) sets aside a dedicated fraction of slots for women who book early.\n\n"
+        "The **reservation approach** (Optimal dedicated-EDF) sets aside a dedicated fraction of slots for women who book early.\n\n"
         "Results are shown after each scenario is completed — confirm before continuing to the next."
     )
 
@@ -1430,7 +1140,7 @@ with tab1:
     with st.container(border=True):
         cfg_left, cfg_right = st.columns([3, 2], gap="large")
         with cfg_left:
-            st.markdown("**Optimal Hybrid-EDF(μᴱ) — Configuration**")
+            st.markdown("**Optimal dedicated-EDF(μᴱ) — Configuration**")
             means_text_t1 = st.text_input(
                 "Allocation to planned date of delivery means (μᴱ) (comma-separated)",
                 key="t1_means_text",
@@ -1468,13 +1178,13 @@ with tab1:
         if not results_exist:
             if means_list_t1:
                 run_first = st.button(
-                    f"▶  Run EDF pooled + Optimal Hybrid-EDF (μᴱ = {means_list_t1[0]:.0f})",
+                    f"▶  Run pooled-EDF + Optimal dedicated-EDF (μᴱ = {means_list_t1[0]:.0f})",
                     key="t1_run_first", type="primary")
         else:
             if n_done < len(means_cfg):
                 next_mu = means_cfg[n_done]
                 run_next = st.button(
-                    f"▶  Run Optimal Hybrid-EDF (μᴱ = {next_mu:.0f})",
+                    f"▶  Run Optimal dedicated-EDF (μᴱ = {next_mu:.0f})",
                     key=f"t1_cont_{n_done}", type="primary")
             else:
                 st.success(f"✓ All {len(means_cfg)} μᴱ values completed.")
@@ -1513,7 +1223,7 @@ with tab1:
         _save_config()
         gc  = st.session_state["tab1_gamma_config"]
         mu0 = means_list_t1[0]
-        with st.spinner(f"Running EDF (Pooled) + Optimal Hybrid-EDF (μᴱ = {mu0:.0f})  [1/{len(means_list_t1)}]…"):
+        with st.spinner(f"Running pooled-EDF + Optimal dedicated-EDF (μᴱ = {mu0:.0f})  [1/{len(means_list_t1)}]…"):
             _run_edf_and_first_hybrid(mu0, gc, "[1/1]")
         st.rerun()
 
@@ -1521,7 +1231,7 @@ with tab1:
     if run_next and not run_all and results_exist:
         gc  = st.session_state["tab1_gamma_config"]
         mu_ = means_cfg[n_done]
-        with st.spinner(f"Running Optimal Hybrid-EDF  (μᴱ = {mu_:.0f})  [{n_done+1}/{len(means_cfg)}]…"):
+        with st.spinner(f"Running Optimal dedicated-EDF  (μᴱ = {mu_:.0f})  [{n_done+1}/{len(means_cfg)}]…"):
             _run_hybrid_only(mu_, gc, f"[{n_done+1}/{len(means_cfg)}]")
         st.rerun()
 
@@ -1536,10 +1246,10 @@ with tab1:
         for i, mu in enumerate(remaining):
             lbl = f"[{n_so_far+i+1}/{n_total}]"
             if n_so_far == 0 and i == 0:
-                with st.spinner(f"Running EDF (Pooled) + Optimal Hybrid-EDF (μᴱ = {mu:.0f})  {lbl}…"):
+                with st.spinner(f"Running pooled-EDF + Optimal dedicated-EDF (μᴱ = {mu:.0f})  {lbl}…"):
                     _run_edf_and_first_hybrid(mu, gc, lbl)
             else:
-                with st.spinner(f"Running Optimal Hybrid-EDF  (μᴱ = {mu:.0f})  {lbl}…"):
+                with st.spinner(f"Running Optimal dedicated-EDF  (μᴱ = {mu:.0f})  {lbl}…"):
                     _run_hybrid_only(mu, gc, lbl)
         st.rerun()
 
@@ -1563,7 +1273,7 @@ with tab1:
             _N_exp  = int(_pb_exp.get("N", 18))
             _NE_exp = _gs_exp * _N_exp; _NL_exp = _N_exp - _NE_exp
             with st.expander(
-                f"EDF (Pooled)  vs  Optimal Hybrid-EDF  (μᴱ = {res['mu_E']:.0f})"
+                f"pooled-EDF  vs  Optimal dedicated-EDF  (μᴱ = {res['mu_E']:.0f})"
                 f"  with  γ* = {_gs_exp:.3f},  Nᴱ = {_NE_exp:.2f},  Nᴸ = {_NL_exp:.2f}",
                 expanded=is_latest
             ):
@@ -1610,20 +1320,20 @@ with tab2:
 
         # Build ordered policy list: single EDF baseline then one Hybrid per μᴱ
         tab1_edf = st.session_state.get("tab1_edf", {})
-        all_policies = [("EDF (Pooled)", tab1_edf)]
+        all_policies = [("pooled-EDF", tab1_edf)]
         for res in sorted(results_list, key=lambda r: r["mu_E"]):
             all_policies.append(
-                (f"Hybrid (μᴱ={res['mu_E']:.0f}, γ*={res['gamma_star']:.3f})", res["hyb"]))
+                (f"dedicated-EDF (μᴱ={res['mu_E']:.0f}, γ*={res['gamma_star']:.3f})", res["hyb"]))
         mu_labels = [p for p, _ in all_policies]
         # Shorter labels for figures only (no γ*)
-        fig_labels = ["EDF (Pooled)"] + [
-            f"Hybrid (μᴱ={res['mu_E']:.0f})"
+        fig_labels = ["pooled-EDF"] + [
+            f"dedicated-EDF (μᴱ={res['mu_E']:.0f})"
             for res in sorted(results_list, key=lambda r: r["mu_E"])]
 
         # ── Compute metrics for all policies ─────────────────────────────
         metrics = []
         for pname, data in all_policies:
-            if "Hybrid" in pname:
+            if "dedicated-EDF" in pname:
                 _gstar_t2 = data.get("gamma_star", 0.0)
                 _NE_t2 = _gstar_t2 * _N_t2; _NL_t2 = _N_t2 - _NE_t2
                 _slot_rw  = v_s * _NE_t2 * 52
@@ -1631,7 +1341,7 @@ with tab2:
                 _slot_rw = 0.0; _gstar_t2 = None; _NE_t2 = None; _NL_t2 = None
             pE, pL, pE_sd, pL_sd, lossE, lossL, cost, cost_sd = _policy_metrics(
                 data, ann_E, ann_L, cE_s, cL_s, slot_reward=_slot_rw)
-            aband_cost = cE_s * lossE + cL_s * lossL  # pure abandonment cost (no slot reward)
+            aband_cost = cE_s * lossE + cL_s * lossL  # pure case-loss cost (no slot reward)
             _st = data.get("stats")
             _ewa = float(_st.loc["es_wait_active", "mean"]) if (_st is not None and "es_wait_active" in _st.index) else float("nan")
             _ewa_sd = float(_st.loc["es_wait_active", "std"]) if (_st is not None and "es_wait_active" in _st.index) else float("nan")
@@ -1652,8 +1362,8 @@ with tab2:
         _sum_leg = dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
                         font=dict(size=10))
 
-        # ── Plot 1: Abandonment fractions ──────────────────────────────────
-        st.markdown("**Plot 1 — Abandonment fractions (%)**")
+        # ── Plot 1: Case-loss fractions ──────────────────────────────────
+        st.markdown("**Plot 1 — Case-loss fractions (%)**")
         fig1 = go.Figure()
         fig1.add_trace(go.Bar(
             name="Early engagers", x=fig_labels,
@@ -1665,7 +1375,7 @@ with tab2:
             y=[m["pL"]*100 for m in metrics],
             error_y=dict(type='data', array=[m["pL_sd"]*100 for m in metrics], visible=True),
             marker_color="#ee854a"))
-        fig1.update_layout(barmode="group", yaxis_title="Abandonment fraction (%)",
+        fig1.update_layout(barmode="group", yaxis_title="Case-loss fraction (%)",
                            xaxis_title="Policy", height=380,
                            margin=dict(t=10,b=30), legend=_sum_leg)
         st.plotly_chart(fig1, use_container_width=True, key="sum_frac")
@@ -1689,8 +1399,8 @@ with tab2:
                            margin=dict(t=10,b=30), legend=_sum_leg)
         st.plotly_chart(fig2, use_container_width=True, key="sum_loss")
 
-        # ── Plot 3: Total abandonment cost (stacked by component) ─────────
-        st.markdown(f"**Plot 3 — Total abandonment cost  (cᴱ={cE_s:.2f}, cᴸ={cL_s:.2f})**")
+        # ── Plot 3: Total case-loss cost (stacked by component) ─────────
+        st.markdown(f"**Plot 3 — Total case-loss cost  (cᴱ={cE_s:.2f}, cᴸ={cL_s:.2f})**")
         fig3 = go.Figure()
         fig3.add_trace(go.Bar(
             name="Early component", x=fig_labels,
@@ -1702,24 +1412,24 @@ with tab2:
             marker_color="#ee854a"))
         fig3.update_layout(
             barmode="stack",
-            yaxis_title="Annual abandonment cost (cost units/yr)",
+            yaxis_title="Annual case-loss cost (cost units/yr)",
             xaxis_title="Policy", height=380,
             margin=dict(t=10,b=30), legend=_sum_leg)
         st.plotly_chart(fig3, use_container_width=True, key="sum_cost")
 
         # ── Plot 4: Total cost C(γ) per policy ────────────────────────────
         st.markdown(f"**Plot 4 — Total cost C(γ)  (v={v_s:.3f})**")
-        _edf_cost_t2 = next(m["cost"] for m in metrics if "Hybrid" not in m["name"])
+        _edf_cost_t2 = next(m["cost"] for m in metrics if "dedicated-EDF" not in m["name"])
         fig4_sum = go.Figure()
         fig4_sum.add_trace(go.Bar(
             x=fig_labels,
             y=[m["cost"] for m in metrics],
             error_y=dict(type='data', array=[m["cost_sd"] for m in metrics], visible=True),
-            marker_color=["#4878d0" if "Hybrid" not in m["name"] else "#2e7d32" for m in metrics],
+            marker_color=["#4878d0" if "dedicated-EDF" not in m["name"] else "#2e7d32" for m in metrics],
             showlegend=False,
         ))
         for lbl, m in zip(fig_labels, metrics):
-            if "Hybrid" not in m["name"]:
+            if "dedicated-EDF" not in m["name"]:
                 continue
             sav_t2 = _edf_cost_t2 - m["cost"]
             pct_t2 = 100 * sav_t2 / _edf_cost_t2 if _edf_cost_t2 > 0 else 0.0
@@ -1744,7 +1454,7 @@ with tab2:
             rows_sum = []
             for m in metrics:
                 saving = (f"{edf_cost_base - m['cost']:+.1f}"
-                          if "Hybrid" in m["name"] else "—")
+                          if "dedicated-EDF" in m["name"] else "—")
                 ne_str = f"{m['NE']:.2f}" if m["NE"] is not None else "—"
                 nl_str = f"{m['NL']:.2f}" if m["NL"] is not None else "—"
                 _ewa_str = f"{m['es_wait_active']:.3f} ± {m['es_wait_active_sd']:.3f}" if not math.isnan(m['es_wait_active']) else "—"
@@ -1759,9 +1469,9 @@ with tab2:
                     "Nᴸ": nl_str,
                     "Avg queue wait — Early served (wks)": _ewa_str,
                     "Avg slack — Early served (wks)": _esl_str,
-                    "Abandonment cost (cost units/yr)": f"{m['aband_cost']:.1f} ± {m['cost_sd']:.1f}",
+                    "Case-loss cost (cost units/yr)": f"{m['aband_cost']:.1f} ± {m['cost_sd']:.1f}",
                     "Total cost C(γ) (cost units/yr)": f"{m['cost']:.1f} ± {m['cost_sd']:.1f}",
-                    "Cost saving vs EDF (Pooled)": saving,
+                    "Cost saving vs pooled-EDF": saving,
                 })
             st.dataframe(pd.DataFrame(rows_sum), use_container_width=True, hide_index=True)
 
