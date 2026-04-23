@@ -272,11 +272,6 @@ def _sb_header(label: str) -> None:
 
 st.sidebar.title("Parameters")
 
-_sb_header("Demand & Slots")
-λE        = st.sidebar.number_input("Demand for early engagers (λᴱ)", 0.0, 500.0, step=0.001, format="%.3f", key="sb_lambdaE")
-λL        = st.sidebar.number_input("Demand for late engagers (λᴸ)",  0.0, 500.0, step=0.001, format="%.3f", key="sb_lambdaL")
-N_servers = st.sidebar.number_input("Slots N", 1, 500, step=1, key="sb_N")
-
 _sb_header("Cost & Equity")
 t1_cE    = st.sidebar.number_input("Early abandon cost (cᴱ)",      min_value=0.0, step=0.1,  format="%.3f", key="t1_cE",    disabled=_tab1_locked)
 t1_cL    = st.sidebar.number_input("Late abandon cost (cᴸ)",       min_value=0.0, step=0.1,  format="%.3f", key="t1_cL",    disabled=_tab1_locked)
@@ -337,21 +332,12 @@ t1_gmax = st.sidebar.number_input("γ max", 0.0, 1.0, step=0.05, key="t1_gmax",
                                    disabled=_tab1_locked)
 
 _sb_header("Experiment Settings")
+t1_n_runs = st.sidebar.number_input("Replications", 1, 500, step=5, key="t1_n_runs",
+                                     disabled=_tab1_locked)
 T_max     = st.sidebar.number_input("Total time T (weeks)", 1, 10000, step=52, key="sb_T_max")
 T0_warmup = st.sidebar.number_input("Warm-up period T₀ (weeks)", 0, int(T_max), step=10, key="sb_T0")
 p_ns   = st.sidebar.slider("No-show probability p", 0.0, 1.0, step=0.01, key="sb_p_ns")
 seed0  = st.sidebar.number_input("Base random seed", 0, 10_000_000, step=1, key="sb_seed0")
-
-params_base = dict(
-    T_max=float(T_max), warmup=float(T0_warmup),
-    p_ns=float(p_ns),
-    λE=float(λE), λL=float(λL), N=int(N_servers),
-    early_F=early_F, early_params=dict(early_params),
-    early_min=float(early_min), early_max=float(early_max),
-    late_F=late_F, late_params=dict(late_params),
-    late_min=float(late_min), late_max=float(late_max),
-    svc_E=dict(svc_E), svc_L=dict(svc_L),
-)
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Simulation helpers
@@ -1077,10 +1063,27 @@ with st.container(border=True):
             means_list_t1 = []
 
     with cfg_right:
-        st.markdown("**Replications**")
-        t1_n_runs = st.number_input("Number of replications", 1, 500, step=5,
-                                    key="t1_n_runs", disabled=results_exist)
-        st.caption("Cost & Equity and γ* Search (range, grid step) are set in the sidebar.")
+        st.markdown("**Demand & Slots**")
+        λE        = st.number_input("Demand for early engagers (λᴱ)", 0.0, 500.0,
+                                    step=0.001, format="%.3f",
+                                    key="sb_lambdaE", disabled=results_exist)
+        λL        = st.number_input("Demand for late engagers (λᴸ)",  0.0, 500.0,
+                                    step=0.001, format="%.3f",
+                                    key="sb_lambdaL", disabled=results_exist)
+        N_servers = st.number_input("Slots N", 1, 500, step=1,
+                                    key="sb_N", disabled=results_exist)
+        st.caption("Replications, Cost & Equity, and γ* Search are set in the sidebar.")
+
+params_base = dict(
+    T_max=float(T_max), warmup=float(T0_warmup),
+    p_ns=float(p_ns),
+    λE=float(λE), λL=float(λL), N=int(N_servers),
+    early_F=early_F, early_params=dict(early_params),
+    early_min=float(early_min), early_max=float(early_max),
+    late_F=late_F, late_params=dict(late_params),
+    late_min=float(late_min), late_max=float(late_max),
+    svc_E=dict(svc_E), svc_L=dict(svc_L),
+)
 
 # ── Buttons ───────────────────────────────────────────────────────────────
 means_cfg  = st.session_state.get("tab1_means_config", means_list_t1)
