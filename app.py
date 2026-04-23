@@ -280,21 +280,18 @@ t1_Delta_pct = st.sidebar.number_input("Equity tolerance Δ (%)",    min_value=0
 
 _sb_header("Lead time")
 means_text_t1 = st.sidebar.text_input(
-    "Allocation to planned date of delivery means (μᴱ) for early engagers",
+    "Allocation to planned date of delivery means (μᴱ) for early engagers (days)",
     key="t1_means_text", disabled=_tab1_locked)
 try:
     means_list_t1 = sorted(set(float(x.strip()) for x in means_text_t1.split(",") if x.strip()))
     if not means_list_t1: raise ValueError
-    if len(means_list_t1) == 1:
-        st.sidebar.caption(f"{means_list_t1[0]:.0f} days.")
-    else:
+    if len(means_list_t1) > 1:
         st.sidebar.caption(
             f"{len(means_list_t1)} values: " + ", ".join(f"{m:.0f}" for m in means_list_t1))
 except Exception:
     st.sidebar.error("Please enter valid comma-separated numbers.")
     means_list_t1 = []
 st.sidebar.caption(
-    "Default 70 days — allocate a slot upon request. "
     "Enter multiple comma-separated values to evaluate several μᴱ at once.")
 
 st.sidebar.markdown("**Baseline Lead Time**")
@@ -1018,8 +1015,7 @@ st.markdown(
     "This tool compares two approaches to scheduling planned (elective) C-sections. "
     "The **standard approach** (pooled-EDF) allocates all operating slots to a shared waiting list, "
     "giving priority to the patient whose planned delivery date is soonest. "
-    "The **reservation approach** (Optimal dedicated-EDF) sets aside a dedicated fraction of slots for women who book early.\n\n"
-    "Results are shown after each scenario is completed — confirm before continuing to the next."
+    "The **reservation approach** (Optimal dedicated-EDF) sets aside a dedicated fraction of slots for women who book early."
 )
 
 # ── Save / Load session ───────────────────────────────────────────────────
@@ -1067,15 +1063,18 @@ results_exist = bool(st.session_state.get("tab1_results"))
 
 with st.container(border=True):
     st.markdown("**Demand & Slots**")
-    λE        = st.number_input("Demand for early engagers (λᴱ)", 0.0, 500.0,
-                                step=0.001, format="%.3f",
-                                key="sb_lambdaE", disabled=results_exist)
-    λL        = st.number_input("Demand for late engagers (λᴸ)",  0.0, 500.0,
-                                step=0.001, format="%.3f",
-                                key="sb_lambdaL", disabled=results_exist)
-    N_servers = st.number_input("Slots N", 1, 500, step=1,
-                                key="sb_N", disabled=results_exist)
-    st.caption("μᴱ, Replications, Cost & Equity, and γ* Search are set in the sidebar.")
+    _dE, _dL, _dN = st.columns(3)
+    with _dE:
+        λE        = st.number_input("Demand for early engagers (λᴱ)", 0.0, 500.0,
+                                    step=0.001, format="%.3f",
+                                    key="sb_lambdaE", disabled=results_exist)
+    with _dL:
+        λL        = st.number_input("Demand for late engagers (λᴸ)",  0.0, 500.0,
+                                    step=0.001, format="%.3f",
+                                    key="sb_lambdaL", disabled=results_exist)
+    with _dN:
+        N_servers = st.number_input("Slots N", 1, 500, step=1,
+                                    key="sb_N", disabled=results_exist)
 
 params_base = dict(
     T_max=float(T_max), warmup=float(T0_warmup),
