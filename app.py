@@ -1063,16 +1063,15 @@ results_exist = bool(st.session_state.get("tab1_results"))
 
 with st.container(border=True):
     st.markdown("**Demand & Slots**")
-    _dE, _dL, _dN = st.columns(3)
-    with _dE:
-        λE        = st.number_input("Demand for early engagers (λᴱ)", 0.0, 500.0,
-                                    step=0.001, format="%.3f",
-                                    key="sb_lambdaE", disabled=results_exist)
-    with _dL:
-        λL        = st.number_input("Demand for late engagers (λᴸ)",  0.0, 500.0,
-                                    step=0.001, format="%.3f",
-                                    key="sb_lambdaL", disabled=results_exist)
-    with _dN:
+    _d_left, _d_right = st.columns(2)
+    with _d_left:
+        λE = st.number_input("Demand for early engagers (λᴱ)", 0.0, 500.0,
+                             step=0.001, format="%.3f",
+                             key="sb_lambdaE", disabled=results_exist)
+        λL = st.number_input("Demand for late engagers (λᴸ)",  0.0, 500.0,
+                             step=0.001, format="%.3f",
+                             key="sb_lambdaL", disabled=results_exist)
+    with _d_right:
         N_servers = st.number_input("Slots N", 1, 500, step=1,
                                     key="sb_N", disabled=results_exist)
 
