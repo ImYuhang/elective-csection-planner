@@ -1060,24 +1060,26 @@ with st.expander("💾  Save / Load session", expanded=False):
 
 results_exist = bool(st.session_state.get("tab1_results"))
 
-with st.container(border=True):
-    st.markdown(
-        '<div style="background:#1b4f8a;color:#ffffff;padding:5px 10px;'
-        'border-radius:5px;margin:0 0 10px 0;font-size:0.78em;'
-        'font-weight:700;letter-spacing:0.09em;text-transform:uppercase;">'
-        'Demand &amp; Slots</div>',
-        unsafe_allow_html=True)
-    _d_left, _gap, _d_right, _pad = st.columns([1, 0.5, 1, 2])
-    with _d_left:
-        λE = st.number_input("Demand for early engagers (λᴱ)", 0.0, 500.0,
-                             step=0.001, format="%.3f",
-                             key="sb_lambdaE", disabled=results_exist)
-        λL = st.number_input("Demand for late engagers (λᴸ)",  0.0, 500.0,
-                             step=0.001, format="%.3f",
-                             key="sb_lambdaL", disabled=results_exist)
-    with _d_right:
-        N_servers = st.number_input("Slots N", 1, 500, step=1,
-                                    key="sb_N", disabled=results_exist)
+_cfg_col, _ = st.columns([1, 1])
+with _cfg_col:
+    with st.container(border=True):
+        st.markdown(
+            '<div style="background:#1b4f8a;color:#ffffff;padding:5px 10px;'
+            'border-radius:5px;margin:0 0 10px 0;font-size:0.78em;'
+            'font-weight:700;letter-spacing:0.09em;text-transform:uppercase;">'
+            'Demand &amp; Slots</div>',
+            unsafe_allow_html=True)
+        _d_left, _gap, _d_right = st.columns([1, 0.3, 1])
+        with _d_left:
+            λE = st.number_input("Demand for early engagers (λᴱ)", 0.0, 500.0,
+                                 step=0.001, format="%.3f",
+                                 key="sb_lambdaE", disabled=results_exist)
+            λL = st.number_input("Demand for late engagers (λᴸ)",  0.0, 500.0,
+                                 step=0.001, format="%.3f",
+                                 key="sb_lambdaL", disabled=results_exist)
+        with _d_right:
+            N_servers = st.number_input("Slots N", 1, 500, step=1,
+                                        key="sb_N", disabled=results_exist)
 
 params_base = dict(
     T_max=float(T_max), warmup=float(T0_warmup),
