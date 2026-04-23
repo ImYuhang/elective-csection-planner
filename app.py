@@ -234,7 +234,7 @@ for _k, _v in [
     ("sb_T_max", 152.0),   ("sb_T0", 100.0), ("sb_p_ns", 0.0), ("sb_seed0", 42),
     ("t1_cE", 1.0), ("t1_cL", 2.0), ("t1_Delta_pct", 20.0), ("t1_v", 0.1),
     ("t1_gmin", 0.0), ("t1_gmax", 1.0), ("t1_gstep", 0.01),
-    ("t1_means_text", "7, 14, 21, 28, 35, 70"), ("t1_n_runs", 50),
+    ("t1_means_text", "70"), ("t1_n_runs", 50),
     ("early_min", 3.0), ("early_max", 10.0), ("early_mean", 7.0), ("early_sd", 4.0),
     ("late_min",  3.0), ("late_max",  10.0), ("late_mean",  7.0), ("late_sd",  4.0),
 ]:
@@ -278,7 +278,26 @@ t1_cL    = st.sidebar.number_input("Late abandon cost (cᴸ)",       min_value=0
 t1_v     = st.sidebar.number_input("Reserved-slot value (v)",       min_value=0.0, step=0.01, format="%.3f", key="t1_v",     disabled=_tab1_locked)
 t1_Delta_pct = st.sidebar.number_input("Equity tolerance Δ (%)",    min_value=0.0, step=1.0,  format="%.1f", key="t1_Delta_pct", disabled=_tab1_locked)
 
-_sb_header("Baseline Lead Time")
+_sb_header("Lead time")
+means_text_t1 = st.sidebar.text_input(
+    "Allocation to planned date of delivery means (μᴱ) for early engagers",
+    key="t1_means_text", disabled=_tab1_locked)
+try:
+    means_list_t1 = sorted(set(float(x.strip()) for x in means_text_t1.split(",") if x.strip()))
+    if not means_list_t1: raise ValueError
+    if len(means_list_t1) == 1:
+        st.sidebar.caption(f"{means_list_t1[0]:.0f} days.")
+    else:
+        st.sidebar.caption(
+            f"{len(means_list_t1)} values: " + ", ".join(f"{m:.0f}" for m in means_list_t1))
+except Exception:
+    st.sidebar.error("Please enter valid comma-separated numbers.")
+    means_list_t1 = []
+st.sidebar.caption(
+    "Default 70 days — allocate a slot upon request. "
+    "Enter multiple comma-separated values to evaluate several μᴱ at once.")
+
+st.sidebar.markdown("**Baseline Lead Time**")
 with st.sidebar.expander("Early engagers", expanded=False):
     early_F = st.selectbox("Distribution",
         ["Lognormal (truncated)", "Uniform", "Normal (truncated)", "Deterministic"],
@@ -1047,32 +1066,16 @@ with st.expander("💾  Save / Load session", expanded=False):
 results_exist = bool(st.session_state.get("tab1_results"))
 
 with st.container(border=True):
-    cfg_left, cfg_right = st.columns([3, 2], gap="large")
-    with cfg_left:
-        st.markdown("**Optimal dedicated-EDF(μᴱ) — Configuration**")
-        means_text_t1 = st.text_input(
-            "Allocation to planned date of delivery means (μᴱ) (comma-separated)",
-            key="t1_means_text",
-            disabled=results_exist)
-        try:
-            means_list_t1 = sorted(set(float(x.strip()) for x in means_text_t1.split(",") if x.strip()))
-            if not means_list_t1: raise ValueError
-            st.caption(f"{len(means_list_t1)} values: " + ", ".join(f"{m:.0f}" for m in means_list_t1))
-        except Exception:
-            st.error("Please enter valid comma-separated numbers.")
-            means_list_t1 = []
-
-    with cfg_right:
-        st.markdown("**Demand & Slots**")
-        λE        = st.number_input("Demand for early engagers (λᴱ)", 0.0, 500.0,
-                                    step=0.001, format="%.3f",
-                                    key="sb_lambdaE", disabled=results_exist)
-        λL        = st.number_input("Demand for late engagers (λᴸ)",  0.0, 500.0,
-                                    step=0.001, format="%.3f",
-                                    key="sb_lambdaL", disabled=results_exist)
-        N_servers = st.number_input("Slots N", 1, 500, step=1,
-                                    key="sb_N", disabled=results_exist)
-        st.caption("Replications, Cost & Equity, and γ* Search are set in the sidebar.")
+    st.markdown("**Demand & Slots**")
+    λE        = st.number_input("Demand for early engagers (λᴱ)", 0.0, 500.0,
+                                step=0.001, format="%.3f",
+                                key="sb_lambdaE", disabled=results_exist)
+    λL        = st.number_input("Demand for late engagers (λᴸ)",  0.0, 500.0,
+                                step=0.001, format="%.3f",
+                                key="sb_lambdaL", disabled=results_exist)
+    N_servers = st.number_input("Slots N", 1, 500, step=1,
+                                key="sb_N", disabled=results_exist)
+    st.caption("μᴱ, Replications, Cost & Equity, and γ* Search are set in the sidebar.")
 
 params_base = dict(
     T_max=float(T_max), warmup=float(T0_warmup),
@@ -1086,32 +1089,17 @@ params_base = dict(
 )
 
 # ── Buttons ───────────────────────────────────────────────────────────────
-means_cfg  = st.session_state.get("tab1_means_config", means_list_t1)
-n_done     = len(st.session_state.get("tab1_results", []))
-run_first  = False
-run_next   = False
-run_all    = False
+run_clicked = False
 
-btn_col, run_all_col, reset_col = st.columns([4, 1, 1])
+btn_col, reset_col = st.columns([5, 1])
 with btn_col:
-    if not results_exist:
-        if means_list_t1:
-            run_first = st.button(
-                f"▶  Run pooled-EDF + Optimal dedicated-EDF (μᴱ = {means_list_t1[0]:.0f})",
-                key="t1_run_first", type="primary")
-    else:
-        if n_done < len(means_cfg):
-            next_mu = means_cfg[n_done]
-            run_next = st.button(
-                f"▶  Run Optimal dedicated-EDF (μᴱ = {next_mu:.0f})",
-                key=f"t1_cont_{n_done}", type="primary")
-        else:
-            st.success(f"✓ All {len(means_cfg)} μᴱ values completed.")
-
-with run_all_col:
-    if (not results_exist and means_list_t1) or (results_exist and n_done < len(means_cfg)):
-        run_all = st.button("▶▶  Run All",
-                            key=f"t1_run_all_{n_done}")
+    if not results_exist and means_list_t1:
+        _lbl = (f"▶  Run pooled-EDF + Optimal dedicated-EDF (μᴱ = {means_list_t1[0]:.0f})"
+                if len(means_list_t1) == 1
+                else f"▶  Run pooled-EDF + Optimal dedicated-EDF ({len(means_list_t1)} μᴱ values)")
+        run_clicked = st.button(_lbl, key="t1_run", type="primary")
+    elif results_exist:
+        st.success(f"✓ Run complete ({len(st.session_state.get('tab1_results', []))} μᴱ value(s)).")
 
 with reset_col:
     if results_exist:
@@ -1137,34 +1125,14 @@ def _save_config():
     st.session_state["tab1_results"]  = []
     # tab1_edf and tab1_baseline_pb_trace are set by _run_edf_and_first_hybrid
 
-# ── Handle first run (mutually exclusive with run_all) ────────────────────
-if run_first and not run_all and means_list_t1:
+# ── Handle run ────────────────────────────────────────────────────────────
+if run_clicked and means_list_t1:
     _save_config()
-    gc  = st.session_state["tab1_gamma_config"]
-    mu0 = means_list_t1[0]
-    with st.spinner(f"Running pooled-EDF + Optimal dedicated-EDF (μᴱ = {mu0:.0f})  [1/{len(means_list_t1)}]…"):
-        _run_edf_and_first_hybrid(mu0, gc, "[1/1]")
-    st.rerun()
-
-# ── Handle continue (mutually exclusive with run_all) ─────────────────────
-if run_next and not run_all and results_exist:
-    gc  = st.session_state["tab1_gamma_config"]
-    mu_ = means_cfg[n_done]
-    with st.spinner(f"Running Optimal dedicated-EDF  (μᴱ = {mu_:.0f})  [{n_done+1}/{len(means_cfg)}]…"):
-        _run_hybrid_only(mu_, gc, f"[{n_done+1}/{len(means_cfg)}]")
-    st.rerun()
-
-# ── Handle run all ────────────────────────────────────────────────────────
-if run_all and not run_first and not run_next and means_list_t1:
-    if not results_exist:
-        _save_config()
-    gc        = st.session_state["tab1_gamma_config"]
-    n_so_far  = len(st.session_state["tab1_results"])
-    remaining = st.session_state["tab1_means_config"][n_so_far:]
-    n_total   = len(st.session_state["tab1_means_config"])
-    for i, mu in enumerate(remaining):
-        lbl = f"[{n_so_far+i+1}/{n_total}]"
-        if n_so_far == 0 and i == 0:
+    gc      = st.session_state["tab1_gamma_config"]
+    n_total = len(means_list_t1)
+    for i, mu in enumerate(means_list_t1):
+        lbl = f"[{i+1}/{n_total}]"
+        if i == 0:
             with st.spinner(f"Running pooled-EDF + Optimal dedicated-EDF (μᴱ = {mu:.0f})  {lbl}…"):
                 _run_edf_and_first_hybrid(mu, gc, lbl)
         else:
