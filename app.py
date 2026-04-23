@@ -328,6 +328,9 @@ svc_E = _svc_ui("Early")
 svc_L = _svc_ui("Late")
 
 _sb_header("γ* Search")
+t1_gstep = st.sidebar.number_input("γ Grid Step", min_value=0.01, max_value=1.0,
+                                    step=0.01, format="%.2f",
+                                    key="t1_gstep", disabled=_tab1_locked)
 t1_gmin = st.sidebar.number_input("γ min", 0.0, 1.0, step=0.05, key="t1_gmin",
                                    disabled=_tab1_locked)
 t1_gmax = st.sidebar.number_input("γ max", 0.0, 1.0, step=0.05, key="t1_gmax",
@@ -1005,399 +1008,375 @@ def _generate_html_report() -> str:
     return "".join(parts)
 
 
-tab1, tab2 = st.tabs(["Tab 1: Policy Simulation", "Tab 2: Summary"])
+st.header("Policy Simulation")
+st.markdown(
+    "This tool compares two approaches to scheduling planned (elective) C-sections. "
+    "The **standard approach** (pooled-EDF) allocates all operating slots to a shared waiting list, "
+    "giving priority to the patient whose planned delivery date is soonest. "
+    "The **reservation approach** (Optimal dedicated-EDF) sets aside a dedicated fraction of slots for women who book early.\n\n"
+    "Results are shown after each scenario is completed — confirm before continuing to the next."
+)
 
-# ───────────────────────────────────────────────────────────────────────────
-# TAB 1
-# ───────────────────────────────────────────────────────────────────────────
-with tab1:
-    st.header("Policy Simulation")
-    st.markdown(
-        "This tool compares two approaches to scheduling planned (elective) C-sections. "
-        "The **standard approach** (pooled-EDF) allocates all operating slots to a shared waiting list, "
-        "giving priority to the patient whose planned delivery date is soonest. "
-        "The **reservation approach** (Optimal dedicated-EDF) sets aside a dedicated fraction of slots for women who book early.\n\n"
-        "Results are shown after each scenario is completed — confirm before continuing to the next."
+# ── Save / Load session ───────────────────────────────────────────────────
+with st.expander("💾  Save / Load session", expanded=False):
+    st.caption(
+        "Sessions are saved as ZIP files to the **saved sessions/** folder inside the app folder."
     )
-
-    # ── Save / Load session ───────────────────────────────────────────────
-    with st.expander("💾  Save / Load session", expanded=False):
-        st.caption(
-            "Sessions are saved as ZIP files to the **saved sessions/** folder inside the app folder."
-        )
-        sv_col, ld_col = st.columns(2)
-        with sv_col:
-            st.markdown("**Save** current results")
-            if st.session_state.get("tab1_results"):
-                _n = len(st.session_state.get("tab1_results", []))
-                _sname = st.text_input(
-                    "Session name", value="session_1",
-                    key="save_session_name",
-                    placeholder="Enter a name (without extension)")
-                if st.button(f"💾 Save session ({_n} μᴱ value(s))", key="save_session_btn"):
-                    _sname_clean = _sname.strip().replace("/", "_").replace("\\", "_") or "session"
-                    _spath = os.path.join(SESSIONS_DIR, f"{_sname_clean}.zip")
-                    with open(_spath, "wb") as _f:
-                        _f.write(_session_to_zip())
-                    st.success(f"Saved → `saved sessions/{_sname_clean}.zip`")
-            else:
-                st.info("No results to save yet — run a simulation first.")
-        with ld_col:
-            st.markdown("**Load** a saved session")
-            _existing = sorted(
-                f for f in os.listdir(SESSIONS_DIR) if f.endswith(".zip"))
-            if _existing:
-                _sel = st.selectbox(
-                    "Choose session", _existing, key="load_session_sel",
-                    label_visibility="collapsed")
-                if st.button("↑ Load session", key="restore_btn"):
-                    with open(os.path.join(SESSIONS_DIR, _sel), "rb") as _f:
-                        _loaded = _zip_to_session(_f.read())
-                    for _k, _v in _loaded.items():
-                        st.session_state[_k] = _v
-                    _n = len(_loaded.get("tab1_results", []))
-                    st.success(f"Restored — {_n} μᴱ value(s) loaded.")
-                    st.rerun()
-            else:
-                st.info("No saved sessions found.")
-
-    results_exist = bool(st.session_state.get("tab1_results"))
-
-    with st.container(border=True):
-        cfg_left, cfg_right = st.columns([3, 2], gap="large")
-        with cfg_left:
-            st.markdown("**Optimal dedicated-EDF(μᴱ) — Configuration**")
-            means_text_t1 = st.text_input(
-                "Allocation to planned date of delivery means (μᴱ) (comma-separated)",
-                key="t1_means_text",
-                disabled=results_exist)
-            try:
-                means_list_t1 = sorted(set(float(x.strip()) for x in means_text_t1.split(",") if x.strip()))
-                if not means_list_t1: raise ValueError
-                st.caption(f"{len(means_list_t1)} values: " + ", ".join(f"{m:.0f}" for m in means_list_t1))
-            except Exception:
-                st.error("Please enter valid comma-separated numbers.")
-                means_list_t1 = []
-
-            st.markdown("**γ Grid Step**")
-            _gs_col, _ = st.columns([1, 1])
-            with _gs_col:
-                t1_gstep = st.number_input("Step", min_value=0.01, max_value=1.0,
-                                           step=0.01, format="%.2f",
-                                           key="t1_gstep", disabled=results_exist)
-
-        with cfg_right:
-            st.markdown("**Replications**")
-            t1_n_runs = st.number_input("Number of replications", 1, 500, step=5,
-                                        key="t1_n_runs", disabled=results_exist)
-            st.caption("Cost & Equity and γ range are set in the sidebar.")
-
-    # ── Buttons ───────────────────────────────────────────────────────────
-    means_cfg  = st.session_state.get("tab1_means_config", means_list_t1)
-    n_done     = len(st.session_state.get("tab1_results", []))
-    run_first  = False
-    run_next   = False
-    run_all    = False
-
-    btn_col, run_all_col, reset_col = st.columns([4, 1, 1])
-    with btn_col:
-        if not results_exist:
-            if means_list_t1:
-                run_first = st.button(
-                    f"▶  Run pooled-EDF + Optimal dedicated-EDF (μᴱ = {means_list_t1[0]:.0f})",
-                    key="t1_run_first", type="primary")
+    sv_col, ld_col = st.columns(2)
+    with sv_col:
+        st.markdown("**Save** current results")
+        if st.session_state.get("tab1_results"):
+            _n = len(st.session_state.get("tab1_results", []))
+            _sname = st.text_input(
+                "Session name", value="session_1",
+                key="save_session_name",
+                placeholder="Enter a name (without extension)")
+            if st.button(f"💾 Save session ({_n} μᴱ value(s))", key="save_session_btn"):
+                _sname_clean = _sname.strip().replace("/", "_").replace("\\", "_") or "session"
+                _spath = os.path.join(SESSIONS_DIR, f"{_sname_clean}.zip")
+                with open(_spath, "wb") as _f:
+                    _f.write(_session_to_zip())
+                st.success(f"Saved → `saved sessions/{_sname_clean}.zip`")
         else:
-            if n_done < len(means_cfg):
-                next_mu = means_cfg[n_done]
-                run_next = st.button(
-                    f"▶  Run Optimal dedicated-EDF (μᴱ = {next_mu:.0f})",
-                    key=f"t1_cont_{n_done}", type="primary")
-            else:
-                st.success(f"✓ All {len(means_cfg)} μᴱ values completed.")
-
-    with run_all_col:
-        if (not results_exist and means_list_t1) or (results_exist and n_done < len(means_cfg)):
-            run_all = st.button("▶▶  Run All",
-                                key=f"t1_run_all_{n_done}")
-
-    with reset_col:
-        if results_exist:
-            if st.button("↺ Reset", key="t1_reset"):
-                for k in list(st.session_state.keys()):
-                    if k.startswith("tab1_"): del st.session_state[k]
-                st.session_state.pop("_html_cache", None)
-                st.session_state.pop("_html_cache_sig", None)
+            st.info("No results to save yet — run a simulation first.")
+    with ld_col:
+        st.markdown("**Load** a saved session")
+        _existing = sorted(
+            f for f in os.listdir(SESSIONS_DIR) if f.endswith(".zip"))
+        if _existing:
+            _sel = st.selectbox(
+                "Choose session", _existing, key="load_session_sel",
+                label_visibility="collapsed")
+            if st.button("↑ Load session", key="restore_btn"):
+                with open(os.path.join(SESSIONS_DIR, _sel), "rb") as _f:
+                    _loaded = _zip_to_session(_f.read())
+                for _k, _v in _loaded.items():
+                    st.session_state[_k] = _v
+                _n = len(_loaded.get("tab1_results", []))
+                st.success(f"Restored — {_n} μᴱ value(s) loaded.")
                 st.rerun()
+        else:
+            st.info("No saved sessions found.")
 
-    def _save_config():
-        st.session_state["tab1_means_config"] = means_list_t1
-        st.session_state["tab1_gamma_config"] = dict(
-            gmin=t1_gmin, gmax=t1_gmax, gstep=float(t1_gstep),
-            cE=float(t1_cE), cL=float(t1_cL), v=float(t1_v), Delta=float(t1_Delta_pct) / 100.0)
-        st.session_state["tab1_params_base"] = dict(params_base)
-        st.session_state["tab1_n_runs"]  = int(t1_n_runs)
-        st.session_state["tab1_seed0"]   = int(seed0)
-        st.session_state["tab1_T_max"]   = float(T_max)
-        st.session_state["tab1_T0"]      = float(T0_warmup)
-        st.session_state["tab1_lambdaE"] = float(λE)
-        st.session_state["tab1_lambdaL"] = float(λL)
-        st.session_state["tab1_results"]  = []
-        # tab1_edf and tab1_baseline_pb_trace are set by _run_edf_and_first_hybrid
+results_exist = bool(st.session_state.get("tab1_results"))
 
-    # ── Handle first run (mutually exclusive with run_all) ────────────────
-    if run_first and not run_all and means_list_t1:
-        _save_config()
-        gc  = st.session_state["tab1_gamma_config"]
-        mu0 = means_list_t1[0]
-        with st.spinner(f"Running pooled-EDF + Optimal dedicated-EDF (μᴱ = {mu0:.0f})  [1/{len(means_list_t1)}]…"):
-            _run_edf_and_first_hybrid(mu0, gc, "[1/1]")
-        st.rerun()
+with st.container(border=True):
+    cfg_left, cfg_right = st.columns([3, 2], gap="large")
+    with cfg_left:
+        st.markdown("**Optimal dedicated-EDF(μᴱ) — Configuration**")
+        means_text_t1 = st.text_input(
+            "Allocation to planned date of delivery means (μᴱ) (comma-separated)",
+            key="t1_means_text",
+            disabled=results_exist)
+        try:
+            means_list_t1 = sorted(set(float(x.strip()) for x in means_text_t1.split(",") if x.strip()))
+            if not means_list_t1: raise ValueError
+            st.caption(f"{len(means_list_t1)} values: " + ", ".join(f"{m:.0f}" for m in means_list_t1))
+        except Exception:
+            st.error("Please enter valid comma-separated numbers.")
+            means_list_t1 = []
 
-    # ── Handle continue (mutually exclusive with run_all) ─────────────────
-    if run_next and not run_all and results_exist:
-        gc  = st.session_state["tab1_gamma_config"]
-        mu_ = means_cfg[n_done]
-        with st.spinner(f"Running Optimal dedicated-EDF  (μᴱ = {mu_:.0f})  [{n_done+1}/{len(means_cfg)}]…"):
-            _run_hybrid_only(mu_, gc, f"[{n_done+1}/{len(means_cfg)}]")
-        st.rerun()
+    with cfg_right:
+        st.markdown("**Replications**")
+        t1_n_runs = st.number_input("Number of replications", 1, 500, step=5,
+                                    key="t1_n_runs", disabled=results_exist)
+        st.caption("Cost & Equity and γ* Search (range, grid step) are set in the sidebar.")
 
-    # ── Handle run all ────────────────────────────────────────────────────
-    if run_all and not run_first and not run_next and means_list_t1:
-        if not results_exist:
-            _save_config()
-        gc        = st.session_state["tab1_gamma_config"]
-        n_so_far  = len(st.session_state["tab1_results"])
-        remaining = st.session_state["tab1_means_config"][n_so_far:]
-        n_total   = len(st.session_state["tab1_means_config"])
-        for i, mu in enumerate(remaining):
-            lbl = f"[{n_so_far+i+1}/{n_total}]"
-            if n_so_far == 0 and i == 0:
-                with st.spinner(f"Running pooled-EDF + Optimal dedicated-EDF (μᴱ = {mu:.0f})  {lbl}…"):
-                    _run_edf_and_first_hybrid(mu, gc, lbl)
-            else:
-                with st.spinner(f"Running Optimal dedicated-EDF  (μᴱ = {mu:.0f})  {lbl}…"):
-                    _run_hybrid_only(mu, gc, lbl)
-        st.rerun()
+# ── Buttons ───────────────────────────────────────────────────────────────
+means_cfg  = st.session_state.get("tab1_means_config", means_list_t1)
+n_done     = len(st.session_state.get("tab1_results", []))
+run_first  = False
+run_next   = False
+run_all    = False
 
-    # ── Display accumulated results ───────────────────────────────────────
-    if results_exist:
-        results_list = st.session_state["tab1_results"]
-        edf_base = st.session_state["tab1_edf"]   # single EDF baseline
-        lE_s  = st.session_state.get("tab1_lambdaE", float(λE))
-        lL_s  = st.session_state.get("tab1_lambdaL", float(λL))
-        gc_s  = st.session_state.get("tab1_gamma_config", {})
-        cE_s  = gc_s.get("cE", 1.0); cL_s = gc_s.get("cL", 2.0); v_s = gc_s.get("v", 0.0)
-        _pb_s  = st.session_state.get("tab1_params_base", {})
-        _N_s   = int(_pb_s.get("N", 18))
-        _T_s   = float(st.session_state.get("tab1_T_max",  T_max))
-        _T0_s  = float(st.session_state.get("tab1_T0",     T0_warmup))
-
-        for i, res in enumerate(results_list):
-            is_latest = (i == len(results_list) - 1)
-            _gs_exp = res['gamma_star']
-            _pb_exp = st.session_state.get("tab1_params_base", {})
-            _N_exp  = int(_pb_exp.get("N", 18))
-            _NE_exp = _gs_exp * _N_exp; _NL_exp = _N_exp - _NE_exp
-            with st.expander(
-                f"pooled-EDF  vs  Optimal dedicated-EDF  (μᴱ = {res['mu_E']:.0f})"
-                f"  with  γ* = {_gs_exp:.3f},  Nᴱ = {_NE_exp:.2f},  Nᴸ = {_NL_exp:.2f}",
-                expanded=is_latest
-            ):
-                _comparison_charts(edf_base, res["hyb"], lE_s, lL_s, cE_s, cL_s,
-                                   v=v_s, N=_N_s, T=_T_s, T0=_T0_s)
-
-        st.divider()
-        # Cache HTML so it is generated only once per result set, not on every render.
-        _html_sig = str(len(results_list)) + "_" + str([r["mu_E"] for r in results_list])
-        if st.session_state.get("_html_cache_sig") != _html_sig:
-            st.session_state["_html_cache"] = _generate_html_report().encode("utf-8")
-            st.session_state["_html_cache_sig"] = _html_sig
-        _ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        st.download_button(
-            label="⬇  Export interactive HTML report",
-            data=st.session_state["_html_cache"],
-            file_name=f"simulation_report_{_ts}.html",
-            mime="text/html",
-            key="t1_export_html",
-        )
-
-
-
-# ───────────────────────────────────────────────────────────────────────────
-# TAB 2 — SUMMARY
-# ───────────────────────────────────────────────────────────────────────────
-with tab2:
-    st.header("Summary")
-
-    if not st.session_state.get("tab1_results"):
-        st.info("Run Tab 1 first — results will appear here once at least one μᴱ has been completed.")
+btn_col, run_all_col, reset_col = st.columns([4, 1, 1])
+with btn_col:
+    if not results_exist:
+        if means_list_t1:
+            run_first = st.button(
+                f"▶  Run pooled-EDF + Optimal dedicated-EDF (μᴱ = {means_list_t1[0]:.0f})",
+                key="t1_run_first", type="primary")
     else:
-        results_list = st.session_state["tab1_results"]
-        lE_s  = st.session_state.get("tab1_lambdaE", float(λE))
-        lL_s  = st.session_state.get("tab1_lambdaL", float(λL))
-        gc_s  = st.session_state.get("tab1_gamma_config", {})
-        cE_s  = gc_s.get("cE", 1.0); cL_s = gc_s.get("cL", 2.0); v_s = gc_s.get("v", 0.0)
-        ann_E, ann_L = _ann_headcounts(lE_s, lL_s)
-        T_s  = float(st.session_state.get("tab1_T_max",  float(T_max)))
-        T0_s = float(st.session_state.get("tab1_T0",     float(T0_warmup)))
-        nr_s = st.session_state.get("tab1_n_runs", 50)
-        pb_s = st.session_state.get("tab1_params_base", dict(params_base))
-        _N_t2 = int(pb_s.get("N", 18))
+        if n_done < len(means_cfg):
+            next_mu = means_cfg[n_done]
+            run_next = st.button(
+                f"▶  Run Optimal dedicated-EDF (μᴱ = {next_mu:.0f})",
+                key=f"t1_cont_{n_done}", type="primary")
+        else:
+            st.success(f"✓ All {len(means_cfg)} μᴱ values completed.")
 
-        # Build ordered policy list: single EDF baseline then one Hybrid per μᴱ
-        tab1_edf = st.session_state.get("tab1_edf", {})
-        all_policies = [("pooled-EDF", tab1_edf)]
-        for res in sorted(results_list, key=lambda r: r["mu_E"]):
-            all_policies.append(
-                (f"dedicated-EDF (μᴱ={res['mu_E']:.0f}, γ*={res['gamma_star']:.3f})", res["hyb"]))
-        mu_labels = [p for p, _ in all_policies]
-        # Shorter labels for figures only (no γ*)
-        fig_labels = ["pooled-EDF"] + [
-            f"dedicated-EDF (μᴱ={res['mu_E']:.0f})"
-            for res in sorted(results_list, key=lambda r: r["mu_E"])]
+with run_all_col:
+    if (not results_exist and means_list_t1) or (results_exist and n_done < len(means_cfg)):
+        run_all = st.button("▶▶  Run All",
+                            key=f"t1_run_all_{n_done}")
 
-        # ── Compute metrics for all policies ─────────────────────────────
-        metrics = []
-        for pname, data in all_policies:
-            if "dedicated-EDF" in pname:
-                _gstar_t2 = data.get("gamma_star", 0.0)
-                _NE_t2 = _gstar_t2 * _N_t2; _NL_t2 = _N_t2 - _NE_t2
-                _slot_rw  = v_s * _NE_t2 * 52
-            else:
-                _slot_rw = 0.0; _gstar_t2 = None; _NE_t2 = None; _NL_t2 = None
-            pE, pL, pE_sd, pL_sd, lossE, lossL, cost, cost_sd = _policy_metrics(
-                data, ann_E, ann_L, cE_s, cL_s, slot_reward=_slot_rw)
-            aband_cost = cE_s * lossE + cL_s * lossL  # pure case-loss cost (no slot reward)
-            _st = data.get("stats")
-            _ewa = float(_st.loc["es_wait_active", "mean"]) if (_st is not None and "es_wait_active" in _st.index) else float("nan")
-            _ewa_sd = float(_st.loc["es_wait_active", "std"]) if (_st is not None and "es_wait_active" in _st.index) else float("nan")
-            _esl = float(_st.loc["es_slack", "mean"]) if (_st is not None and "es_slack" in _st.index) else float("nan")
-            _esl_sd = float(_st.loc["es_slack", "std"]) if (_st is not None and "es_slack" in _st.index) else float("nan")
-            metrics.append(dict(
-                name=pname, pE=pE, pL=pL, pE_sd=pE_sd, pL_sd=pL_sd,
-                lossE=lossE, lossL=lossL, cost=cost, cost_sd=cost_sd,
-                aband_cost=aband_cost, NE=_NE_t2, NL=_NL_t2,
-                es_wait_active=_ewa, es_wait_active_sd=_ewa_sd,
-                es_slack=_esl, es_slack_sd=_esl_sd))
+with reset_col:
+    if results_exist:
+        if st.button("↺ Reset", key="t1_reset"):
+            for k in list(st.session_state.keys()):
+                if k.startswith("tab1_"): del st.session_state[k]
+            st.session_state.pop("_html_cache", None)
+            st.session_state.pop("_html_cache_sig", None)
+            st.rerun()
 
-        COLOR_PALETTE = ["#4878d0","#ee854a","#6acc65","#d65f5f","#956cb4","#8c613c","#dc7ec0"]
-        colors = {m["name"]: COLOR_PALETTE[i % len(COLOR_PALETTE)] for i,m in enumerate(metrics)}
+def _save_config():
+    st.session_state["tab1_means_config"] = means_list_t1
+    st.session_state["tab1_gamma_config"] = dict(
+        gmin=t1_gmin, gmax=t1_gmax, gstep=float(t1_gstep),
+        cE=float(t1_cE), cL=float(t1_cL), v=float(t1_v), Delta=float(t1_Delta_pct) / 100.0)
+    st.session_state["tab1_params_base"] = dict(params_base)
+    st.session_state["tab1_n_runs"]  = int(t1_n_runs)
+    st.session_state["tab1_seed0"]   = int(seed0)
+    st.session_state["tab1_T_max"]   = float(T_max)
+    st.session_state["tab1_T0"]      = float(T0_warmup)
+    st.session_state["tab1_lambdaE"] = float(λE)
+    st.session_state["tab1_lambdaL"] = float(λL)
+    st.session_state["tab1_results"]  = []
+    # tab1_edf and tab1_baseline_pb_trace are set by _run_edf_and_first_hybrid
 
-        st.subheader("Comparative Overview — All Policies")
+# ── Handle first run (mutually exclusive with run_all) ────────────────────
+if run_first and not run_all and means_list_t1:
+    _save_config()
+    gc  = st.session_state["tab1_gamma_config"]
+    mu0 = means_list_t1[0]
+    with st.spinner(f"Running pooled-EDF + Optimal dedicated-EDF (μᴱ = {mu0:.0f})  [1/{len(means_list_t1)}]…"):
+        _run_edf_and_first_hybrid(mu0, gc, "[1/1]")
+    st.rerun()
 
-        _sum_leg = dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
-                        font=dict(size=10))
+# ── Handle continue (mutually exclusive with run_all) ─────────────────────
+if run_next and not run_all and results_exist:
+    gc  = st.session_state["tab1_gamma_config"]
+    mu_ = means_cfg[n_done]
+    with st.spinner(f"Running Optimal dedicated-EDF  (μᴱ = {mu_:.0f})  [{n_done+1}/{len(means_cfg)}]…"):
+        _run_hybrid_only(mu_, gc, f"[{n_done+1}/{len(means_cfg)}]")
+    st.rerun()
 
-        # ── Plot 1: Case-loss fractions ──────────────────────────────────
-        st.markdown("**Plot 1 — Case-loss fractions (%)**")
-        fig1 = go.Figure()
-        fig1.add_trace(go.Bar(
-            name="Early engagers", x=fig_labels,
-            y=[m["pE"]*100 for m in metrics],
-            error_y=dict(type='data', array=[m["pE_sd"]*100 for m in metrics], visible=True),
-            marker_color="#4878d0"))
-        fig1.add_trace(go.Bar(
-            name="Late engagers", x=fig_labels,
-            y=[m["pL"]*100 for m in metrics],
-            error_y=dict(type='data', array=[m["pL_sd"]*100 for m in metrics], visible=True),
-            marker_color="#ee854a"))
-        fig1.update_layout(barmode="group", yaxis_title="Case-loss fraction (%)",
-                           xaxis_title="Policy", height=380,
-                           margin=dict(t=10,b=30), legend=_sum_leg)
-        st.plotly_chart(fig1, use_container_width=True, key="sum_frac")
+# ── Handle run all ────────────────────────────────────────────────────────
+if run_all and not run_first and not run_next and means_list_t1:
+    if not results_exist:
+        _save_config()
+    gc        = st.session_state["tab1_gamma_config"]
+    n_so_far  = len(st.session_state["tab1_results"])
+    remaining = st.session_state["tab1_means_config"][n_so_far:]
+    n_total   = len(st.session_state["tab1_means_config"])
+    for i, mu in enumerate(remaining):
+        lbl = f"[{n_so_far+i+1}/{n_total}]"
+        if n_so_far == 0 and i == 0:
+            with st.spinner(f"Running pooled-EDF + Optimal dedicated-EDF (μᴱ = {mu:.0f})  {lbl}…"):
+                _run_edf_and_first_hybrid(mu, gc, lbl)
+        else:
+            with st.spinner(f"Running Optimal dedicated-EDF  (μᴱ = {mu:.0f})  {lbl}…"):
+                _run_hybrid_only(mu, gc, lbl)
+    st.rerun()
 
-        # ── Plot 2: Case losses ────────────────────────────────────────────
-        st.markdown("**Plot 2 — Estimated annual case losses**")
-        fig2 = go.Figure()
-        fig2.add_trace(go.Bar(
-            name="Early engagers", x=fig_labels,
-            y=[m["lossE"] for m in metrics],
-            error_y=dict(type='data', array=[m["pE_sd"]*ann_E for m in metrics], visible=True),
-            marker_color="#4878d0"))
-        fig2.add_trace(go.Bar(
-            name="Late engagers", x=fig_labels,
-            y=[m["lossL"] for m in metrics],
-            error_y=dict(type='data', array=[m["pL_sd"]*ann_L for m in metrics], visible=True),
-            marker_color="#ee854a"))
-        fig2.update_layout(barmode="group",
-                           yaxis_title="Estimated annual case losses",
-                           xaxis_title="Policy", height=380,
-                           margin=dict(t=10,b=30), legend=_sum_leg)
-        st.plotly_chart(fig2, use_container_width=True, key="sum_loss")
+# ── Display accumulated results ───────────────────────────────────────────
+if results_exist:
+    results_list = st.session_state["tab1_results"]
+    edf_base = st.session_state["tab1_edf"]   # single EDF baseline
+    lE_s  = st.session_state.get("tab1_lambdaE", float(λE))
+    lL_s  = st.session_state.get("tab1_lambdaL", float(λL))
+    gc_s  = st.session_state.get("tab1_gamma_config", {})
+    cE_s  = gc_s.get("cE", 1.0); cL_s = gc_s.get("cL", 2.0); v_s = gc_s.get("v", 0.0)
+    ann_E, ann_L = _ann_headcounts(lE_s, lL_s)
+    _pb_s  = st.session_state.get("tab1_params_base", {})
+    _N_s   = int(_pb_s.get("N", 18))
+    _T_s   = float(st.session_state.get("tab1_T_max",  T_max))
+    _T0_s  = float(st.session_state.get("tab1_T0",     T0_warmup))
+    nr_s   = st.session_state.get("tab1_n_runs", 50)
 
-        # ── Plot 3: Total case-loss cost (stacked by component) ─────────
-        st.markdown(f"**Plot 3 — Total case-loss cost  (cᴱ={cE_s:.2f}, cᴸ={cL_s:.2f})**")
-        fig3 = go.Figure()
-        fig3.add_trace(go.Bar(
-            name="Early component", x=fig_labels,
-            y=[cE_s*m["lossE"] for m in metrics],
-            marker_color="#4878d0"))
-        fig3.add_trace(go.Bar(
-            name="Late component", x=fig_labels,
-            y=[cL_s*m["lossL"] for m in metrics],
-            marker_color="#ee854a"))
-        fig3.update_layout(
-            barmode="stack",
-            yaxis_title="Annual case-loss cost (cost units/yr)",
-            xaxis_title="Policy", height=380,
-            margin=dict(t=10,b=30), legend=_sum_leg)
-        st.plotly_chart(fig3, use_container_width=True, key="sum_cost")
+    for i, res in enumerate(results_list):
+        is_latest = (i == len(results_list) - 1)
+        _gs_exp = res['gamma_star']
+        _NE_exp = _gs_exp * _N_s; _NL_exp = _N_s - _NE_exp
+        with st.expander(
+            f"pooled-EDF  vs  Optimal dedicated-EDF  (μᴱ = {res['mu_E']:.0f})"
+            f"  with  γ* = {_gs_exp:.3f},  Nᴱ = {_NE_exp:.2f},  Nᴸ = {_NL_exp:.2f}",
+            expanded=is_latest
+        ):
+            _comparison_charts(edf_base, res["hyb"], lE_s, lL_s, cE_s, cL_s,
+                               v=v_s, N=_N_s, T=_T_s, T0=_T0_s)
 
-        # ── Plot 4: Total cost C(γ) per policy ────────────────────────────
-        st.markdown(f"**Plot 4 — Total cost C(γ)  (v={v_s:.3f})**")
-        _edf_cost_t2 = next(m["cost"] for m in metrics if "dedicated-EDF" not in m["name"])
-        fig4_sum = go.Figure()
-        fig4_sum.add_trace(go.Bar(
-            x=fig_labels,
-            y=[m["cost"] for m in metrics],
-            error_y=dict(type='data', array=[m["cost_sd"] for m in metrics], visible=True),
-            marker_color=["#4878d0" if "dedicated-EDF" not in m["name"] else "#2e7d32" for m in metrics],
-            showlegend=False,
-        ))
-        for lbl, m in zip(fig_labels, metrics):
-            if "dedicated-EDF" not in m["name"]:
-                continue
-            sav_t2 = _edf_cost_t2 - m["cost"]
-            pct_t2 = 100 * sav_t2 / _edf_cost_t2 if _edf_cost_t2 > 0 else 0.0
-            sign_t2 = "↓" if sav_t2 >= 0 else "↑"
-            col_t2  = "#2e7d32" if sav_t2 >= 0 else "#c62828"
-            fig4_sum.add_annotation(
-                x=lbl,
-                y=m["cost"] + m["cost_sd"] * 1.4,
-                text=f"{sign_t2}{abs(sav_t2):.1f} ({abs(pct_t2):.1f}%)",
-                showarrow=False,
-                font=dict(size=10, color=col_t2),
-            )
-        fig4_sum.update_layout(
-            yaxis_title="Annual total cost C(γ) (cost units/yr)",
-            xaxis_title="Policy", height=400,
-            margin=dict(t=30, b=30))
-        st.plotly_chart(fig4_sum, use_container_width=True, key="sum_totalcost")
+    st.divider()
 
-        # ── Summary table ─────────────────────────────────────────────────
-        with st.expander("Summary table"):
-            edf_cost_base = _policy_metrics(tab1_edf, ann_E, ann_L, cE_s, cL_s)[6]
-            rows_sum = []
-            for m in metrics:
-                saving = (f"{edf_cost_base - m['cost']:+.1f}"
-                          if "dedicated-EDF" in m["name"] else "—")
-                ne_str = f"{m['NE']:.2f}" if m["NE"] is not None else "—"
-                nl_str = f"{m['NL']:.2f}" if m["NL"] is not None else "—"
-                _ewa_str = f"{m['es_wait_active']:.3f} ± {m['es_wait_active_sd']:.3f}" if not math.isnan(m['es_wait_active']) else "—"
-                _esl_str = f"{m['es_slack']:.3f} ± {m['es_slack_sd']:.3f}" if not math.isnan(m['es_slack']) else "—"
-                rows_sum.append({
-                    "Policy": m["name"],
-                    "p_E (%)": f"{m['pE']*100:.2f} ± {m['pE_sd']*100:.2f}",
-                    "p_L (%)": f"{m['pL']*100:.2f} ± {m['pL_sd']*100:.2f}",
-                    f"Case losses — Early (52×λᴱ={ann_E:.0f}/yr)": f"{m['lossE']:.1f}",
-                    f"Case losses — Late  (52×λᴸ={ann_L:.0f}/yr)": f"{m['lossL']:.1f}",
-                    "Nᴱ": ne_str,
-                    "Nᴸ": nl_str,
-                    "Avg queue wait — Early served (wks)": _ewa_str,
-                    "Avg slack — Early served (wks)": _esl_str,
-                    "Case-loss cost (cost units/yr)": f"{m['aband_cost']:.1f} ± {m['cost_sd']:.1f}",
-                    "Total cost C(γ) (cost units/yr)": f"{m['cost']:.1f} ± {m['cost_sd']:.1f}",
-                    "Cost saving vs pooled-EDF": saving,
-                })
-            st.dataframe(pd.DataFrame(rows_sum), use_container_width=True, hide_index=True)
+    # ── Comparative Overview — All Policies ───────────────────────────────
+    all_policies = [("pooled-EDF", edf_base)]
+    for res in sorted(results_list, key=lambda r: r["mu_E"]):
+        all_policies.append(
+            (f"dedicated-EDF (μᴱ={res['mu_E']:.0f}, γ*={res['gamma_star']:.3f})", res["hyb"]))
+    fig_labels = ["pooled-EDF"] + [
+        f"dedicated-EDF (μᴱ={res['mu_E']:.0f})"
+        for res in sorted(results_list, key=lambda r: r["mu_E"])]
+
+    metrics = []
+    for pname, data in all_policies:
+        if "dedicated-EDF" in pname:
+            _gstar = data.get("gamma_star", 0.0)
+            _NE = _gstar * _N_s; _NL = _N_s - _NE
+            _slot_rw = v_s * _NE * 52
+        else:
+            _slot_rw = 0.0; _NE = None; _NL = None
+        pE, pL, pE_sd, pL_sd, lossE, lossL, cost, cost_sd = _policy_metrics(
+            data, ann_E, ann_L, cE_s, cL_s, slot_reward=_slot_rw)
+        aband_cost = cE_s * lossE + cL_s * lossL  # pure case-loss cost (no slot reward)
+        _st = data.get("stats")
+        _ewa = float(_st.loc["es_wait_active", "mean"]) if (_st is not None and "es_wait_active" in _st.index) else float("nan")
+        _ewa_sd = float(_st.loc["es_wait_active", "std"]) if (_st is not None and "es_wait_active" in _st.index) else float("nan")
+        _esl = float(_st.loc["es_slack", "mean"]) if (_st is not None and "es_slack" in _st.index) else float("nan")
+        _esl_sd = float(_st.loc["es_slack", "std"]) if (_st is not None and "es_slack" in _st.index) else float("nan")
+        metrics.append(dict(
+            name=pname, pE=pE, pL=pL, pE_sd=pE_sd, pL_sd=pL_sd,
+            lossE=lossE, lossL=lossL, cost=cost, cost_sd=cost_sd,
+            aband_cost=aband_cost, NE=_NE, NL=_NL,
+            es_wait_active=_ewa, es_wait_active_sd=_ewa_sd,
+            es_slack=_esl, es_slack_sd=_esl_sd))
+
+    st.subheader("Comparative Overview — All Policies")
+
+    _sum_leg = dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
+                    font=dict(size=10))
+
+    # ── Plot 1: Case-loss fractions ──────────────────────────────────────
+    st.markdown("**Plot 1 — Case-loss fractions (%)**")
+    fig1 = go.Figure()
+    fig1.add_trace(go.Bar(
+        name="Early engagers", x=fig_labels,
+        y=[m["pE"]*100 for m in metrics],
+        error_y=dict(type='data', array=[m["pE_sd"]*100 for m in metrics], visible=True),
+        marker_color="#4878d0"))
+    fig1.add_trace(go.Bar(
+        name="Late engagers", x=fig_labels,
+        y=[m["pL"]*100 for m in metrics],
+        error_y=dict(type='data', array=[m["pL_sd"]*100 for m in metrics], visible=True),
+        marker_color="#ee854a"))
+    fig1.update_layout(barmode="group", yaxis_title="Case-loss fraction (%)",
+                       xaxis_title="Policy", height=380,
+                       margin=dict(t=10,b=30), legend=_sum_leg)
+    st.plotly_chart(fig1, use_container_width=True, key="sum_frac")
+
+    # ── Plot 2: Case losses ──────────────────────────────────────────────
+    st.markdown("**Plot 2 — Estimated annual case losses**")
+    fig2 = go.Figure()
+    fig2.add_trace(go.Bar(
+        name="Early engagers", x=fig_labels,
+        y=[m["lossE"] for m in metrics],
+        error_y=dict(type='data', array=[m["pE_sd"]*ann_E for m in metrics], visible=True),
+        marker_color="#4878d0"))
+    fig2.add_trace(go.Bar(
+        name="Late engagers", x=fig_labels,
+        y=[m["lossL"] for m in metrics],
+        error_y=dict(type='data', array=[m["pL_sd"]*ann_L for m in metrics], visible=True),
+        marker_color="#ee854a"))
+    fig2.update_layout(barmode="group",
+                       yaxis_title="Estimated annual case losses",
+                       xaxis_title="Policy", height=380,
+                       margin=dict(t=10,b=30), legend=_sum_leg)
+    st.plotly_chart(fig2, use_container_width=True, key="sum_loss")
+
+    # ── Plot 3: Total case-loss cost (stacked by component) ──────────────
+    st.markdown(f"**Plot 3 — Total case-loss cost  (cᴱ={cE_s:.2f}, cᴸ={cL_s:.2f})**")
+    fig3 = go.Figure()
+    fig3.add_trace(go.Bar(
+        name="Early component", x=fig_labels,
+        y=[cE_s*m["lossE"] for m in metrics],
+        marker_color="#4878d0"))
+    fig3.add_trace(go.Bar(
+        name="Late component", x=fig_labels,
+        y=[cL_s*m["lossL"] for m in metrics],
+        marker_color="#ee854a"))
+    fig3.update_layout(
+        barmode="stack",
+        yaxis_title="Annual case-loss cost (cost units/yr)",
+        xaxis_title="Policy", height=380,
+        margin=dict(t=10,b=30), legend=_sum_leg)
+    st.plotly_chart(fig3, use_container_width=True, key="sum_cost")
+
+    # ── Plot 4: Total cost C(γ) per policy ───────────────────────────────
+    st.markdown(f"**Plot 4 — Total cost C(γ)  (v={v_s:.3f})**")
+    _edf_cost = next(m["cost"] for m in metrics if "dedicated-EDF" not in m["name"])
+    fig4_sum = go.Figure()
+    fig4_sum.add_trace(go.Bar(
+        x=fig_labels,
+        y=[m["cost"] for m in metrics],
+        error_y=dict(type='data', array=[m["cost_sd"] for m in metrics], visible=True),
+        marker_color=["#4878d0" if "dedicated-EDF" not in m["name"] else "#2e7d32" for m in metrics],
+        showlegend=False,
+    ))
+    for lbl, m in zip(fig_labels, metrics):
+        if "dedicated-EDF" not in m["name"]:
+            continue
+        sav = _edf_cost - m["cost"]
+        pct = 100 * sav / _edf_cost if _edf_cost > 0 else 0.0
+        sign = "↓" if sav >= 0 else "↑"
+        col  = "#2e7d32" if sav >= 0 else "#c62828"
+        fig4_sum.add_annotation(
+            x=lbl,
+            y=m["cost"] + m["cost_sd"] * 1.4,
+            text=f"{sign}{abs(sav):.1f} ({abs(pct):.1f}%)",
+            showarrow=False,
+            font=dict(size=10, color=col),
+        )
+    fig4_sum.update_layout(
+        yaxis_title="Annual total cost C(γ) (cost units/yr)",
+        xaxis_title="Policy", height=400,
+        margin=dict(t=30, b=30))
+    st.plotly_chart(fig4_sum, use_container_width=True, key="sum_totalcost")
+
+    # ── Summary table ────────────────────────────────────────────────────
+    with st.expander("Summary table"):
+        edf_cost_base = _policy_metrics(edf_base, ann_E, ann_L, cE_s, cL_s)[6]
+        rows_sum = []
+        for m in metrics:
+            saving = (f"{edf_cost_base - m['cost']:+.1f}"
+                      if "dedicated-EDF" in m["name"] else "—")
+            ne_str = f"{m['NE']:.2f}" if m["NE"] is not None else "—"
+            nl_str = f"{m['NL']:.2f}" if m["NL"] is not None else "—"
+            _ewa_str = f"{m['es_wait_active']:.3f} ± {m['es_wait_active_sd']:.3f}" if not math.isnan(m['es_wait_active']) else "—"
+            _esl_str = f"{m['es_slack']:.3f} ± {m['es_slack_sd']:.3f}" if not math.isnan(m['es_slack']) else "—"
+            rows_sum.append({
+                "Policy": m["name"],
+                "p_E (%)": f"{m['pE']*100:.2f} ± {m['pE_sd']*100:.2f}",
+                "p_L (%)": f"{m['pL']*100:.2f} ± {m['pL_sd']*100:.2f}",
+                f"Case losses — Early (52×λᴱ={ann_E:.0f}/yr)": f"{m['lossE']:.1f}",
+                f"Case losses — Late  (52×λᴸ={ann_L:.0f}/yr)": f"{m['lossL']:.1f}",
+                "Nᴱ": ne_str,
+                "Nᴸ": nl_str,
+                "Avg queue wait — Early served (wks)": _ewa_str,
+                "Avg slack — Early served (wks)": _esl_str,
+                "Case-loss cost (cost units/yr)": f"{m['aband_cost']:.1f} ± {m['cost_sd']:.1f}",
+                "Total cost C(γ) (cost units/yr)": f"{m['cost']:.1f} ± {m['cost_sd']:.1f}",
+                "Cost saving vs pooled-EDF": saving,
+            })
+        st.dataframe(pd.DataFrame(rows_sum), use_container_width=True, hide_index=True)
+
+    # ── Primary metrics (mean ± SD) ──────────────────────────────────────
+    st.subheader(f"Primary metrics  (mean ± SD over {nr_s} runs)")
+    def _fmt_pct(m, s): return "—" if pd.isna(m) else f"{m:.2%} ± {s:.2%}"
+    _pm_keys = ["service_rate", "abandon_rate", "util_1"]
+    _pm_labels = {"service_rate": "Service rate",
+                  "abandon_rate": "Case-loss rate",
+                  "util_1":       "Utilisation"}
+    _pm_rows = {}
+    for _k in _pm_keys:
+        _pm_rows[_pm_labels[_k]] = {}
+        for _pname, _data in all_policies:
+            if not _data: continue
+            _s = _data.get("stats")
+            if _s is not None and _k in _s.index:
+                _pm_rows[_pm_labels[_k]][_pname] = _fmt_pct(_s.loc[_k, "mean"], _s.loc[_k, "std"])
+    st.dataframe(pd.DataFrame(_pm_rows).T, use_container_width=True)
+
+    st.divider()
+    # Cache HTML so it is generated only once per result set, not on every render.
+    _html_sig = str(len(results_list)) + "_" + str([r["mu_E"] for r in results_list])
+    if st.session_state.get("_html_cache_sig") != _html_sig:
+        st.session_state["_html_cache"] = _generate_html_report().encode("utf-8")
+        st.session_state["_html_cache_sig"] = _html_sig
+    _ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    st.download_button(
+        label="⬇  Export interactive HTML report",
+        data=st.session_state["_html_cache"],
+        file_name=f"simulation_report_{_ts}.html",
+        mime="text/html",
+        key="t1_export_html",
+    )
 
