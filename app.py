@@ -1010,7 +1010,6 @@ def _generate_html_report() -> str:
     return "".join(parts)
 
 
-st.header("Policy Simulation")
 st.markdown(
     "This tool compares two approaches to scheduling planned (elective) C-sections. "
     "The **standard approach** (pooled-EDF) allocates all operating slots to a shared waiting list, "
@@ -1063,7 +1062,7 @@ results_exist = bool(st.session_state.get("tab1_results"))
 
 with st.container(border=True):
     st.markdown("**Demand & Slots**")
-    _d_left, _d_right = st.columns(2)
+    _d_left, _gap, _d_right = st.columns([2, 1, 2])
     with _d_left:
         λE = st.number_input("Demand for early engagers (λᴱ)", 0.0, 500.0,
                              step=0.001, format="%.3f",
