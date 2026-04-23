@@ -1061,7 +1061,12 @@ with st.expander("💾  Save / Load session", expanded=False):
 results_exist = bool(st.session_state.get("tab1_results"))
 
 with st.container(border=True):
-    st.markdown("**Demand & Slots**")
+    st.markdown(
+        '<div style="background:#1b4f8a;color:#ffffff;padding:5px 10px;'
+        'border-radius:5px;margin:0 0 10px 0;font-size:0.78em;'
+        'font-weight:700;letter-spacing:0.09em;text-transform:uppercase;">'
+        'Demand &amp; Slots</div>',
+        unsafe_allow_html=True)
     _d_left, _gap, _d_right, _pad = st.columns([1, 0.5, 1, 2])
     with _d_left:
         λE = st.number_input("Demand for early engagers (λᴱ)", 0.0, 500.0,
