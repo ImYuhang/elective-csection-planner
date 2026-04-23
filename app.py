@@ -1062,7 +1062,7 @@ results_exist = bool(st.session_state.get("tab1_results"))
 
 with st.container(border=True):
     st.markdown("**Demand & Slots**")
-    _d_left, _gap, _d_right = st.columns([2, 1, 2])
+    _d_left, _gap, _d_right = st.columns([1, 3, 1])
     with _d_left:
         λE = st.number_input("Demand for early engagers (λᴱ)", 0.0, 500.0,
                              step=0.001, format="%.3f",
