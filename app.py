@@ -1132,16 +1132,14 @@ def _save_config():
 # ── Handle run ────────────────────────────────────────────────────────────
 if run_clicked and means_list_t1:
     _save_config()
-    gc      = st.session_state["tab1_gamma_config"]
-    n_total = len(means_list_t1)
+    gc = st.session_state["tab1_gamma_config"]
     for i, mu in enumerate(means_list_t1):
-        lbl = f"[{i+1}/{n_total}]"
         if i == 0:
-            with st.spinner(f"Running pooled-EDF + Optimal dedicated-EDF (μᴱ = {mu:.0f})  {lbl}…"):
-                _run_edf_and_first_hybrid(mu, gc, lbl)
+            with st.spinner(f"Running pooled-EDF + Optimal dedicated-EDF (μᴱ = {mu:.0f})…"):
+                _run_edf_and_first_hybrid(mu, gc, "")
         else:
-            with st.spinner(f"Running Optimal dedicated-EDF  (μᴱ = {mu:.0f})  {lbl}…"):
-                _run_hybrid_only(mu, gc, lbl)
+            with st.spinner(f"Running Optimal dedicated-EDF  (μᴱ = {mu:.0f})…"):
+                _run_hybrid_only(mu, gc, "")
     st.rerun()
 
 # ── Display accumulated results ───────────────────────────────────────────
