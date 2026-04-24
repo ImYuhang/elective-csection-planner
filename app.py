@@ -962,40 +962,25 @@ st.markdown(
 )
 
 # ── Save / Load session ───────────────────────────────────────────────────
-def _apply_loaded_session(loaded: dict) -> int:
-    """Copy a loaded session dict into st.session_state and return the μᴱ count."""
-    for _k, _v in loaded.items():
-        st.session_state[_k] = _v
-    return len(loaded.get("tab1_results", []))
-
 with st.expander("💾  Save / Load session", expanded=False):
     st.caption(
-        "**Save**: download a ZIP of the current results to your machine. "
-        "**Load**: pick a bundled example or upload a ZIP you saved earlier."
+        "Sessions are saved as ZIP files to the **saved sessions/** folder inside the app folder."
     )
     sv_col, ld_col = st.columns(2)
     with sv_col:
         st.markdown("**Save** current results")
         if st.session_state.get("tab1_results"):
-            _results_list = st.session_state.get("tab1_results", [])
-            _n = len(_results_list)
+            _n = len(st.session_state.get("tab1_results", []))
             _sname = st.text_input(
                 "Session name", value="session_1",
                 key="save_session_name",
                 placeholder="Enter a name (without extension)")
-            _sname_clean = _sname.strip().replace("/", "_").replace("\\", "_") or "session"
-            # Cache ZIP bytes so we don't re-serialise on every rerun
-            _zip_sig = str(_n) + "_" + str([r["mu_E"] for r in _results_list])
-            if st.session_state.get("_zip_cache_sig") != _zip_sig:
-                st.session_state["_zip_cache"] = _session_to_zip()
-                st.session_state["_zip_cache_sig"] = _zip_sig
-            st.download_button(
-                label=f"⬇  Download session ({_n} μᴱ value(s))",
-                data=st.session_state["_zip_cache"],
-                file_name=f"{_sname_clean}.zip",
-                mime="application/zip",
-                key="save_session_btn",
-            )
+            if st.button(f"💾 Save session ({_n} μᴱ value(s))", key="save_session_btn"):
+                _sname_clean = _sname.strip().replace("/", "_").replace("\\", "_") or "session"
+                _spath = os.path.join(SESSIONS_DIR, f"{_sname_clean}.zip")
+                with open(_spath, "wb") as _f:
+                    _f.write(_session_to_zip())
+                st.success(f"Saved → `saved sessions/{_sname_clean}.zip`")
         else:
             st.info("No results to save yet — run a simulation first.")
     with ld_col:
@@ -1003,28 +988,19 @@ with st.expander("💾  Save / Load session", expanded=False):
         _existing = sorted(
             f for f in os.listdir(SESSIONS_DIR) if f.endswith(".zip"))
         if _existing:
-            st.caption("Bundled examples:")
             _sel = st.selectbox(
-                "Choose bundled session", _existing, key="load_session_sel",
+                "Choose session", _existing, key="load_session_sel",
                 label_visibility="collapsed")
-            if st.button("↑ Load bundled", key="restore_btn"):
+            if st.button("↑ Load session", key="restore_btn"):
                 with open(os.path.join(SESSIONS_DIR, _sel), "rb") as _f:
-                    _n_loaded = _apply_loaded_session(_zip_to_session(_f.read()))
-                st.success(f"Restored — {_n_loaded} μᴱ value(s) loaded.")
+                    _loaded = _zip_to_session(_f.read())
+                for _k, _v in _loaded.items():
+                    st.session_state[_k] = _v
+                _n = len(_loaded.get("tab1_results", []))
+                st.success(f"Restored — {_n} μᴱ value(s) loaded.")
                 st.rerun()
         else:
-            st.caption("No bundled examples available.")
-
-        st.caption("Or upload your own ZIP:")
-        _uploaded = st.file_uploader(
-            "Upload session ZIP", type=["zip"],
-            key="upload_session_file",
-            label_visibility="collapsed")
-        if _uploaded is not None:
-            if st.button("↑ Load uploaded", key="upload_load_btn"):
-                _n_loaded = _apply_loaded_session(_zip_to_session(_uploaded.getvalue()))
-                st.success(f"Restored — {_n_loaded} μᴱ value(s) loaded.")
-                st.rerun()
+            st.info("No saved sessions found.")
 
 results_exist = bool(st.session_state.get("tab1_results"))
 
@@ -1080,8 +1056,6 @@ with reset_col:
                 if k.startswith("tab1_"): del st.session_state[k]
             st.session_state.pop("_html_cache", None)
             st.session_state.pop("_html_cache_sig", None)
-            st.session_state.pop("_zip_cache", None)
-            st.session_state.pop("_zip_cache_sig", None)
             st.rerun()
 
 def _save_config():
