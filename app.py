@@ -665,11 +665,22 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
         st.plotly_chart(fig4, use_container_width=True, key=f"totalcost_{mu_E}")
 
     # ── Numeric summary ────────────────────────────────────────────────────
+    def _stat_cell(stats_df, key, as_pct=False):
+        if stats_df is None or key not in stats_df.index:
+            return "—"
+        m = float(stats_df.loc[key, "mean"]); s = float(stats_df.loc[key, "std"])
+        if as_pct:
+            return f"{m*100:.2f} ± {s*100:.2f}"
+        return f"{m:.3f} ± {s:.3f}"
+
     with st.expander("Numeric summary table"):
         summary = pd.DataFrame({
             "Metric": [
-                "p_E — early abandon. fraction (%)",
-                "p_L — late abandon. fraction (%)",
+                "Service rate (%)",
+                "Case-loss rate (%)",
+                "Utilisation (%)",
+                "p_E — early case-loss fraction (%)",
+                "p_L — late case-loss fraction (%)",
                 f"Case losses — Early (52×λᴱ={ann_E:.0f}/yr)",
                 f"Case losses — Late  (52×λᴸ={ann_L:.0f}/yr)",
                 "Case losses — Total",
@@ -681,6 +692,9 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
                 "Nᴸ — reserved Late slots",
             ],
             "pooled-EDF": [
+                _stat_cell(edf_data["stats"], "service_rate", as_pct=True),
+                _stat_cell(edf_data["stats"], "abandon_rate", as_pct=True),
+                _stat_cell(edf_data["stats"], "util_1",       as_pct=True),
                 f"{pE_e*100:.2f} ± {pE_e_sd*100:.2f}",
                 f"{pL_e*100:.2f} ± {pL_e_sd*100:.2f}",
                 f"{lE_e:.1f} ± {pE_e_sd*ann_E:.1f}",
@@ -688,12 +702,15 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
                 f"{lE_e+lL_e:.1f}",
                 f"{cost_e:.1f} ± {cost_e_sd:.1f}",
                 f"{cost_e:.1f} ± {cost_e_sd:.1f}",
-                f"{edf_data['stats'].loc['es_wait_active','mean']:.3f} ± {edf_data['stats'].loc['es_wait_active','std']:.3f}",
-                f"{edf_data['stats'].loc['es_slack','mean']:.3f} ± {edf_data['stats'].loc['es_slack','std']:.3f}",
+                _stat_cell(edf_data["stats"], "es_wait_active"),
+                _stat_cell(edf_data["stats"], "es_slack"),
                 "—",
                 "—",
             ],
             lbl_h: [
+                _stat_cell(hyb_data["stats"], "service_rate", as_pct=True),
+                _stat_cell(hyb_data["stats"], "abandon_rate", as_pct=True),
+                _stat_cell(hyb_data["stats"], "util_1",       as_pct=True),
                 f"{pE_h*100:.2f} ± {pE_h_sd*100:.2f}",
                 f"{pL_h*100:.2f} ± {pL_h_sd*100:.2f}",
                 f"{lE_h:.1f} ± {pE_h_sd*ann_E:.1f}",
@@ -701,8 +718,8 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
                 f"{lE_h+lL_h:.1f}",
                 f"{aband_cost_h:.1f} ± {cost_h_sd:.1f}",
                 f"{cost_h:.1f} ± {cost_h_sd:.1f}",
-                f"{hyb_data['stats'].loc['es_wait_active','mean']:.3f} ± {hyb_data['stats'].loc['es_wait_active','std']:.3f}",
-                f"{hyb_data['stats'].loc['es_slack','mean']:.3f} ± {hyb_data['stats'].loc['es_slack','std']:.3f}",
+                _stat_cell(hyb_data["stats"], "es_wait_active"),
+                _stat_cell(hyb_data["stats"], "es_slack"),
                 f"{NE_star:.2f}",
                 f"{NL_star:.2f}",
             ],
@@ -868,142 +885,69 @@ def _generate_html_report() -> str:
         parts.append('</div><div class="row2">')
         parts.append(f'<div>{_fig_html(fig_cost, responsive=False)}</div>')
         parts.append(f'<div>{_fig_html(fig_sav, responsive=False)}</div>')
-        parts.append('</div></div>')
-
-    # ── Summary section ─────────────────────────────────────────────────────
-    if results_list_:
-        parts.append('<div class="section"><h2>Summary — All Policies</h2>')
-        all_pol = [("pooled-EDF", edf_data_)] + \
-                  [(f"dedicated-EDF (μᴱ={r['mu_E']:.0f}, γ*={r['gamma_star']:.3f})", r["hyb"])
-                   for r in sorted(results_list_, key=lambda r: r["mu_E"])]
-        mu_labels_  = [p for p, _ in all_pol]
-        fig_labels_ = ["pooled-EDF"] + [
-            f"dedicated-EDF (μᴱ={r['mu_E']:.0f})"
-            for r in sorted(results_list_, key=lambda r: r["mu_E"])]
-        metrics_   = []
-        for pname, data in all_pol:
-            if "dedicated-EDF" in pname:
-                _gstar_html = data.get("gamma_star", 0.0)
-                _NE_s = _gstar_html * _N_html; _NL_s = _N_html - _NE_s
-                _slot_rw_s  = v_ * _NE_s * 52
-            else:
-                _slot_rw_s = 0.0; _NE_s = None; _NL_s = None
-            pE, pL, pE_sd, pL_sd, lossE, lossL, cost, cost_sd = \
-                _policy_metrics(data, ann_E_, ann_L_, cE_, cL_, slot_reward=_slot_rw_s)
-            aband_cost_ = cE_ * lossE + cL_ * lossL  # pure case-loss cost (no slot reward)
-            _st = data.get("stats")
-            _ewa = float(_st.loc["es_wait_active", "mean"]) if (_st is not None and "es_wait_active" in _st.index) else float("nan")
-            _ewa_sd = float(_st.loc["es_wait_active", "std"]) if (_st is not None and "es_wait_active" in _st.index) else float("nan")
-            _esl = float(_st.loc["es_slack", "mean"]) if (_st is not None and "es_slack" in _st.index) else float("nan")
-            _esl_sd = float(_st.loc["es_slack", "std"]) if (_st is not None and "es_slack" in _st.index) else float("nan")
-            metrics_.append(dict(name=pname, pE=pE, pL=pL, pE_sd=pE_sd, pL_sd=pL_sd,
-                                 lossE=lossE, lossL=lossL, cost=cost, cost_sd=cost_sd,
-                                 aband_cost=aband_cost_, NE=_NE_s, NL=_NL_s,
-                                 es_wait_active=_ewa, es_wait_active_sd=_ewa_sd,
-                                 es_slack=_esl, es_slack_sd=_esl_sd))
-
-        fig_s1 = go.Figure()
-        fig_s1.add_trace(go.Bar(name="Early", x=fig_labels_,
-                                y=[m["pE"]*100 for m in metrics_],
-                                error_y=dict(type='data', array=[m["pE_sd"]*100 for m in metrics_], visible=True),
-                                marker_color=COLOR_E))
-        fig_s1.add_trace(go.Bar(name="Late", x=fig_labels_,
-                                y=[m["pL"]*100 for m in metrics_],
-                                error_y=dict(type='data', array=[m["pL_sd"]*100 for m in metrics_], visible=True),
-                                marker_color=COLOR_L))
-        fig_s1.update_layout(barmode="group", yaxis_title="Case-loss fraction (%)",
-                             title="Case-loss fractions — all policies", height=400, legend=_leg)
-
-        fig_s2 = go.Figure()
-        fig_s2.add_trace(go.Bar(name="Early", x=fig_labels_,
-                                y=[m["lossE"] for m in metrics_],
-                                error_y=dict(type='data', array=[m["pE_sd"]*ann_E_ for m in metrics_], visible=True),
-                                marker_color=COLOR_E))
-        fig_s2.add_trace(go.Bar(name="Late", x=fig_labels_,
-                                y=[m["lossL"] for m in metrics_],
-                                error_y=dict(type='data', array=[m["pL_sd"]*ann_L_ for m in metrics_], visible=True),
-                                marker_color=COLOR_L))
-        fig_s2.update_layout(barmode="group",
-                             yaxis_title="Estimated annual case losses",
-                             title="Annual case losses — all policies", height=400, legend=_leg)
-
-        fig_s3 = go.Figure()
-        fig_s3.add_trace(go.Bar(name="Early component", x=fig_labels_,
-                                y=[cE_*m["lossE"] for m in metrics_], marker_color=COLOR_E))
-        fig_s3.add_trace(go.Bar(name="Late component", x=fig_labels_,
-                                y=[cL_*m["lossL"] for m in metrics_], marker_color=COLOR_L))
-        fig_s3.update_layout(barmode="stack", yaxis_title="Annual case-loss cost (cost units/yr)",
-                             title=f"Total case-loss cost — all policies (cᴱ={cE_:.2f}, cᴸ={cL_:.2f})",
-                             height=400, legend=_leg)
-
-        fig_s4 = go.Figure()
-        fig_s4.add_trace(go.Bar(x=fig_labels_,
-                                y=[m["cost"] for m in metrics_],
-                                error_y=dict(type='data', array=[m["cost_sd"] for m in metrics_], visible=True),
-                                marker_color=[COLOR_E] + [COLOR_L]*(len(metrics_)-1),
-                                showlegend=False))
-        fig_s4.update_layout(yaxis_title="Annual total cost C(γ) (cost units/yr)",
-                             title=f"Total cost C(γ) — all policies (v={v_:.3f})",
-                             height=400)
-
-        parts.append(_fig_html(fig_s1))
-        parts.append(_fig_html(fig_s2))
-        parts.append(_fig_html(fig_s3))
-        parts.append(_fig_html(fig_s4))
-
-        # Summary table
-        edf_cost_base_ = _policy_metrics(edf_data_, ann_E_, ann_L_, cE_, cL_)[6]
-        rows_sum_ = []
-        for m in metrics_:
-            saving = (f"{edf_cost_base_ - m['cost']:+.1f}"
-                      if "dedicated-EDF" in m["name"] else "—")
-            _ewa_str = f"{m['es_wait_active']:.3f} ± {m['es_wait_active_sd']:.3f}" if not math.isnan(m['es_wait_active']) else "—"
-            _esl_str = f"{m['es_slack']:.3f} ± {m['es_slack_sd']:.3f}" if not math.isnan(m['es_slack']) else "—"
-            rows_sum_.append({
-                "Policy": m["name"],
-                "p_E (%)": f"{m['pE']*100:.2f} ± {m['pE_sd']*100:.2f}",
-                "p_L (%)": f"{m['pL']*100:.2f} ± {m['pL_sd']*100:.2f}",
-                f"Loss Early (52×λᴱ={ann_E_:.0f}/yr)": f"{m['lossE']:.1f}",
-                f"Loss Late (52×λᴸ={ann_L_:.0f}/yr)": f"{m['lossL']:.1f}",
-                "Nᴱ": f"{m['NE']:.2f}" if m["NE"] is not None else "—",
-                "Nᴸ": f"{m['NL']:.2f}" if m["NL"] is not None else "—",
-                "Avg queue wait — Early served (wks)": _ewa_str,
-                "Avg slack — Early served (wks)": _esl_str,
-                "Case-loss cost (cost units/yr)": f"{m['aband_cost']:.1f} ± {m['cost_sd']:.1f}",
-                "Total cost C(γ) (cost units/yr)": f"{m['cost']:.1f} ± {m['cost_sd']:.1f}",
-                "Cost saving vs EDF": saving,
-            })
-        parts.append("<h3>Summary table</h3>")
-        parts.append(_tbl(pd.DataFrame(rows_sum_)))
         parts.append('</div>')
 
-    # ── Detailed Results — All Policies ─────────────────────────────────────
-    if results_list_:
-        all_pol_det = [("pooled-EDF", edf_data_)] + \
-                      [(f"Optimal dedicated-EDF (μᴱ={r['mu_E']:.0f}, γ*={r['gamma_star']:.3f})", r["hyb"])
-                       for r in sorted(results_list_, key=lambda r: r["mu_E"])]
-        results_det = {pname: data["stats"]
-                       for pname, data in all_pol_det if data}
-        policy_names_det = list(results_det.keys())
+        # Numeric summary table for this scenario
+        def _stat_cell_html(stats_df, key, as_pct=False):
+            if stats_df is None or key not in stats_df.index:
+                return "—"
+            m = float(stats_df.loc[key, "mean"]); s = float(stats_df.loc[key, "std"])
+            if as_pct:
+                return f"{m*100:.2f} ± {s*100:.2f}"
+            return f"{m:.3f} ± {s:.3f}"
 
-        parts.append('<div class="section"><h2>Detailed Results — All Policies</h2>')
-
-        # Primary metrics table
-        def _fmt_pct_h(m, s): return "—" if pd.isna(m) else f"{m:.2%} ± {s:.2%}"
-        def _ctable_h(keys, labels, fmt_fn):
-            rows = {}
-            for k in keys:
-                rows[labels[k]] = {
-                    pn: fmt_fn(results_det[pn].loc[k, "mean"], results_det[pn].loc[k, "std"])
-                    for pn in policy_names_det if k in results_det[pn].index}
-            return pd.DataFrame(rows).T
-
-        parts.append(f"<h3>Primary metrics (mean ± SD over {nr_} runs)</h3>")
-        parts.append(_tbl_metrics(_ctable_h(
-            ["service_rate", "abandon_rate", "util_1"],
-            {"service_rate": "Service rate", "abandon_rate": "Case-loss rate", "util_1": "Utilisation"},
-            _fmt_pct_h)))
-
+        _summary_df = pd.DataFrame({
+            "Metric": [
+                "Service rate (%)",
+                "Case-loss rate (%)",
+                "Utilisation (%)",
+                "p_E — early case-loss fraction (%)",
+                "p_L — late case-loss fraction (%)",
+                f"Case losses — Early (52×λᴱ={ann_E_:.0f}/yr)",
+                f"Case losses — Late  (52×λᴸ={ann_L_:.0f}/yr)",
+                "Case losses — Total",
+                "Case-loss cost (cost units/yr)",
+                "Total cost C(γ) (cost units/yr)",
+                "Avg queue wait — Early served (weeks)",
+                "Avg slack — Early served (weeks)",
+                "Nᴱ — reserved Early slots",
+                "Nᴸ — reserved Late slots",
+            ],
+            "pooled-EDF": [
+                _stat_cell_html(edf_data_.get("stats"), "service_rate", as_pct=True),
+                _stat_cell_html(edf_data_.get("stats"), "abandon_rate", as_pct=True),
+                _stat_cell_html(edf_data_.get("stats"), "util_1",       as_pct=True),
+                f"{pE_e*100:.2f} ± {pE_e_sd*100:.2f}",
+                f"{pL_e*100:.2f} ± {pL_e_sd*100:.2f}",
+                f"{lE_e:.1f} ± {pE_e_sd*ann_E_:.1f}",
+                f"{lL_e:.1f} ± {pL_e_sd*ann_L_:.1f}",
+                f"{lE_e+lL_e:.1f}",
+                f"{cost_e:.1f} ± {cost_e_sd:.1f}",
+                f"{cost_e:.1f} ± {cost_e_sd:.1f}",
+                _stat_cell_html(edf_data_.get("stats"), "es_wait_active"),
+                _stat_cell_html(edf_data_.get("stats"), "es_slack"),
+                "—",
+                "—",
+            ],
+            lbl_h: [
+                _stat_cell_html(hyb_.get("stats"), "service_rate", as_pct=True),
+                _stat_cell_html(hyb_.get("stats"), "abandon_rate", as_pct=True),
+                _stat_cell_html(hyb_.get("stats"), "util_1",       as_pct=True),
+                f"{pE_h*100:.2f} ± {pE_h_sd*100:.2f}",
+                f"{pL_h*100:.2f} ± {pL_h_sd*100:.2f}",
+                f"{lE_h:.1f} ± {pE_h_sd*ann_E_:.1f}",
+                f"{lL_h:.1f} ± {pL_h_sd*ann_L_:.1f}",
+                f"{lE_h+lL_h:.1f}",
+                f"{aband_cost_h_:.1f} ± {cost_h_sd:.1f}",
+                f"{cost_h:.1f} ± {cost_h_sd:.1f}",
+                _stat_cell_html(hyb_.get("stats"), "es_wait_active"),
+                _stat_cell_html(hyb_.get("stats"), "es_slack"),
+                f"{_NE_html_r:.2f}",
+                f"{_NL_html_r:.2f}",
+            ],
+        })
+        parts.append("<h3>Numeric summary table</h3>")
+        parts.append(_tbl(_summary_df))
         parts.append('</div>')
 
     parts.append("</body></html>")
@@ -1168,175 +1112,6 @@ if results_exist:
         ):
             _comparison_charts(edf_base, res["hyb"], lE_s, lL_s, cE_s, cL_s,
                                v=v_s, N=_N_s, T=_T_s, T0=_T0_s)
-
-    st.divider()
-
-    # ── Comparative Overview — All Policies ───────────────────────────────
-    all_policies = [("pooled-EDF", edf_base)]
-    for res in sorted(results_list, key=lambda r: r["mu_E"]):
-        all_policies.append(
-            (f"dedicated-EDF (μᴱ={res['mu_E']:.0f}, γ*={res['gamma_star']:.3f})", res["hyb"]))
-    fig_labels = ["pooled-EDF"] + [
-        f"dedicated-EDF (μᴱ={res['mu_E']:.0f})"
-        for res in sorted(results_list, key=lambda r: r["mu_E"])]
-
-    metrics = []
-    for pname, data in all_policies:
-        if "dedicated-EDF" in pname:
-            _gstar = data.get("gamma_star", 0.0)
-            _NE = _gstar * _N_s; _NL = _N_s - _NE
-            _slot_rw = v_s * _NE * 52
-        else:
-            _slot_rw = 0.0; _NE = None; _NL = None
-        pE, pL, pE_sd, pL_sd, lossE, lossL, cost, cost_sd = _policy_metrics(
-            data, ann_E, ann_L, cE_s, cL_s, slot_reward=_slot_rw)
-        aband_cost = cE_s * lossE + cL_s * lossL  # pure case-loss cost (no slot reward)
-        _st = data.get("stats")
-        _ewa = float(_st.loc["es_wait_active", "mean"]) if (_st is not None and "es_wait_active" in _st.index) else float("nan")
-        _ewa_sd = float(_st.loc["es_wait_active", "std"]) if (_st is not None and "es_wait_active" in _st.index) else float("nan")
-        _esl = float(_st.loc["es_slack", "mean"]) if (_st is not None and "es_slack" in _st.index) else float("nan")
-        _esl_sd = float(_st.loc["es_slack", "std"]) if (_st is not None and "es_slack" in _st.index) else float("nan")
-        metrics.append(dict(
-            name=pname, pE=pE, pL=pL, pE_sd=pE_sd, pL_sd=pL_sd,
-            lossE=lossE, lossL=lossL, cost=cost, cost_sd=cost_sd,
-            aband_cost=aband_cost, NE=_NE, NL=_NL,
-            es_wait_active=_ewa, es_wait_active_sd=_ewa_sd,
-            es_slack=_esl, es_slack_sd=_esl_sd))
-
-    st.subheader("Comparative Overview — All Policies")
-
-    _sum_leg = dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1,
-                    font=dict(size=10))
-
-    # ── Plot 1: Case-loss fractions ──────────────────────────────────────
-    st.markdown("**Plot 1 — Case-loss fractions (%)**")
-    fig1 = go.Figure()
-    fig1.add_trace(go.Bar(
-        name="Early engagers", x=fig_labels,
-        y=[m["pE"]*100 for m in metrics],
-        error_y=dict(type='data', array=[m["pE_sd"]*100 for m in metrics], visible=True),
-        marker_color="#4878d0"))
-    fig1.add_trace(go.Bar(
-        name="Late engagers", x=fig_labels,
-        y=[m["pL"]*100 for m in metrics],
-        error_y=dict(type='data', array=[m["pL_sd"]*100 for m in metrics], visible=True),
-        marker_color="#ee854a"))
-    fig1.update_layout(barmode="group", yaxis_title="Case-loss fraction (%)",
-                       xaxis_title="Policy", height=380,
-                       margin=dict(t=10,b=30), legend=_sum_leg)
-    st.plotly_chart(fig1, use_container_width=True, key="sum_frac")
-
-    # ── Plot 2: Case losses ──────────────────────────────────────────────
-    st.markdown("**Plot 2 — Estimated annual case losses**")
-    fig2 = go.Figure()
-    fig2.add_trace(go.Bar(
-        name="Early engagers", x=fig_labels,
-        y=[m["lossE"] for m in metrics],
-        error_y=dict(type='data', array=[m["pE_sd"]*ann_E for m in metrics], visible=True),
-        marker_color="#4878d0"))
-    fig2.add_trace(go.Bar(
-        name="Late engagers", x=fig_labels,
-        y=[m["lossL"] for m in metrics],
-        error_y=dict(type='data', array=[m["pL_sd"]*ann_L for m in metrics], visible=True),
-        marker_color="#ee854a"))
-    fig2.update_layout(barmode="group",
-                       yaxis_title="Estimated annual case losses",
-                       xaxis_title="Policy", height=380,
-                       margin=dict(t=10,b=30), legend=_sum_leg)
-    st.plotly_chart(fig2, use_container_width=True, key="sum_loss")
-
-    # ── Plot 3: Total case-loss cost (stacked by component) ──────────────
-    st.markdown(f"**Plot 3 — Total case-loss cost  (cᴱ={cE_s:.2f}, cᴸ={cL_s:.2f})**")
-    fig3 = go.Figure()
-    fig3.add_trace(go.Bar(
-        name="Early component", x=fig_labels,
-        y=[cE_s*m["lossE"] for m in metrics],
-        marker_color="#4878d0"))
-    fig3.add_trace(go.Bar(
-        name="Late component", x=fig_labels,
-        y=[cL_s*m["lossL"] for m in metrics],
-        marker_color="#ee854a"))
-    fig3.update_layout(
-        barmode="stack",
-        yaxis_title="Annual case-loss cost (cost units/yr)",
-        xaxis_title="Policy", height=380,
-        margin=dict(t=10,b=30), legend=_sum_leg)
-    st.plotly_chart(fig3, use_container_width=True, key="sum_cost")
-
-    # ── Plot 4: Total cost C(γ) per policy ───────────────────────────────
-    st.markdown(f"**Plot 4 — Total cost C(γ)  (v={v_s:.3f})**")
-    _edf_cost = next(m["cost"] for m in metrics if "dedicated-EDF" not in m["name"])
-    fig4_sum = go.Figure()
-    fig4_sum.add_trace(go.Bar(
-        x=fig_labels,
-        y=[m["cost"] for m in metrics],
-        error_y=dict(type='data', array=[m["cost_sd"] for m in metrics], visible=True),
-        marker_color=["#4878d0" if "dedicated-EDF" not in m["name"] else "#2e7d32" for m in metrics],
-        showlegend=False,
-    ))
-    for lbl, m in zip(fig_labels, metrics):
-        if "dedicated-EDF" not in m["name"]:
-            continue
-        sav = _edf_cost - m["cost"]
-        pct = 100 * sav / _edf_cost if _edf_cost > 0 else 0.0
-        sign = "↓" if sav >= 0 else "↑"
-        col  = "#2e7d32" if sav >= 0 else "#c62828"
-        fig4_sum.add_annotation(
-            x=lbl,
-            y=m["cost"] + m["cost_sd"] * 1.4,
-            text=f"{sign}{abs(sav):.1f} ({abs(pct):.1f}%)",
-            showarrow=False,
-            font=dict(size=10, color=col),
-        )
-    fig4_sum.update_layout(
-        yaxis_title="Annual total cost C(γ) (cost units/yr)",
-        xaxis_title="Policy", height=400,
-        margin=dict(t=30, b=30))
-    st.plotly_chart(fig4_sum, use_container_width=True, key="sum_totalcost")
-
-    # ── Summary table ────────────────────────────────────────────────────
-    with st.expander("Summary table"):
-        edf_cost_base = _policy_metrics(edf_base, ann_E, ann_L, cE_s, cL_s)[6]
-        rows_sum = []
-        for m in metrics:
-            saving = (f"{edf_cost_base - m['cost']:+.1f}"
-                      if "dedicated-EDF" in m["name"] else "—")
-            ne_str = f"{m['NE']:.2f}" if m["NE"] is not None else "—"
-            nl_str = f"{m['NL']:.2f}" if m["NL"] is not None else "—"
-            _ewa_str = f"{m['es_wait_active']:.3f} ± {m['es_wait_active_sd']:.3f}" if not math.isnan(m['es_wait_active']) else "—"
-            _esl_str = f"{m['es_slack']:.3f} ± {m['es_slack_sd']:.3f}" if not math.isnan(m['es_slack']) else "—"
-            rows_sum.append({
-                "Policy": m["name"],
-                "p_E (%)": f"{m['pE']*100:.2f} ± {m['pE_sd']*100:.2f}",
-                "p_L (%)": f"{m['pL']*100:.2f} ± {m['pL_sd']*100:.2f}",
-                f"Case losses — Early (52×λᴱ={ann_E:.0f}/yr)": f"{m['lossE']:.1f}",
-                f"Case losses — Late  (52×λᴸ={ann_L:.0f}/yr)": f"{m['lossL']:.1f}",
-                "Nᴱ": ne_str,
-                "Nᴸ": nl_str,
-                "Avg queue wait — Early served (wks)": _ewa_str,
-                "Avg slack — Early served (wks)": _esl_str,
-                "Case-loss cost (cost units/yr)": f"{m['aband_cost']:.1f} ± {m['cost_sd']:.1f}",
-                "Total cost C(γ) (cost units/yr)": f"{m['cost']:.1f} ± {m['cost_sd']:.1f}",
-                "Cost saving vs pooled-EDF": saving,
-            })
-        st.dataframe(pd.DataFrame(rows_sum), use_container_width=True, hide_index=True)
-
-    # ── Primary metrics (mean ± SD) ──────────────────────────────────────
-    st.subheader(f"Primary metrics  (mean ± SD over {nr_s} runs)")
-    def _fmt_pct(m, s): return "—" if pd.isna(m) else f"{m:.2%} ± {s:.2%}"
-    _pm_keys = ["service_rate", "abandon_rate", "util_1"]
-    _pm_labels = {"service_rate": "Service rate",
-                  "abandon_rate": "Case-loss rate",
-                  "util_1":       "Utilisation"}
-    _pm_rows = {}
-    for _k in _pm_keys:
-        _pm_rows[_pm_labels[_k]] = {}
-        for _pname, _data in all_policies:
-            if not _data: continue
-            _s = _data.get("stats")
-            if _s is not None and _k in _s.index:
-                _pm_rows[_pm_labels[_k]][_pname] = _fmt_pct(_s.loc[_k, "mean"], _s.loc[_k, "std"])
-    st.dataframe(pd.DataFrame(_pm_rows).T, use_container_width=True)
 
     st.divider()
     # Cache HTML so it is generated only once per result set, not on every render.
