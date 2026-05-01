@@ -583,7 +583,7 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
     c1, c2 = st.columns(2)
 
     with c1:
-        st.markdown(f"<div style='{_title_style}'>Case-Loss Fractions (%)</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='{_title_style}'>Percentage of Case Loss Per Week (%)</div>", unsafe_allow_html=True)
         fig = go.Figure()
         fig.add_trace(go.Bar(name="Early Appointment Requests", x=x_labels,
                              y=[pE_e*100, pE_h*100],
@@ -593,7 +593,7 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
                              y=[pL_e*100, pL_h*100],
                              error_y=dict(type='data', array=[pL_e_sd*100, pL_h_sd*100], visible=True),
                              marker_color=COLOR_L))
-        fig.update_layout(barmode="group", yaxis_title="Case-Loss Fractions (%)",
+        fig.update_layout(barmode="group", yaxis_title="Percentage of Case Loss Per Week (%)",
                           height=360, margin=dict(t=10,b=80), legend=_leg)
         st.plotly_chart(fig, use_container_width=True, key=f"frac_{mu_E}")
         st.caption("The percentage of patients whose cases were cancelled or unplanned per week.")
@@ -633,7 +633,7 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
                               error_y=dict(type='data', array=[cL*pL_e_sd*ann_L, cL*pL_h_sd*ann_L], visible=True),
                               marker_color=COLOR_L))
         fig3.update_layout(barmode="stack",
-                           yaxis_title="Annual Cost Burden of Cancelled/Unplanned Cases (in Relative Cost Units)",
+                           yaxis_title="Annual Cost Burden of Cancelled/Unplanned Cases",
                            height=360, margin=dict(t=10,b=80), legend=_leg)
         st.plotly_chart(fig3, use_container_width=True, key=f"cost_{mu_E}")
         st.caption("The total annual impact of cancelled or unplanned cases, expressed in relative cost units.")
@@ -681,8 +681,8 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
     with st.expander("Numeric Summary Table", expanded=False):
         summary = pd.DataFrame({
             "Metric": [
-                "Case-Loss Fractions (%) — Early Appointment Requests",
-                "Case-Loss Fractions (%) — Late Appointment Requests",
+                "Percentage of Case Loss Per Week (%) — Early Appointment Requests",
+                "Percentage of Case Loss Per Week (%) — Late Appointment Requests",
                 "Estimated Number of Case Losses per Year — Early Appointment Requests",
                 "Estimated Number of Case Losses per Year — Late Appointment Requests",
                 "Estimated Number of Case Losses per Year — Total",
@@ -889,8 +889,8 @@ def _generate_html_report() -> str:
 
         _summary_df = pd.DataFrame({
             "Metric": [
-                "Case-Loss Fractions (%) — Early Appointment Requests",
-                "Case-Loss Fractions (%) — Late Appointment Requests",
+                "Percentage of Case Loss Per Week (%) — Early Appointment Requests",
+                "Percentage of Case Loss Per Week (%) — Late Appointment Requests",
                 "Estimated Number of Case Losses per Year — Early Appointment Requests",
                 "Estimated Number of Case Losses per Year — Late Appointment Requests",
                 "Estimated Number of Case Losses per Year — Total",
