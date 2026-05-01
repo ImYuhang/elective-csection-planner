@@ -655,7 +655,7 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
         st.caption("The total annual impact of cancelled / unperformed cases, expressed in relative cost units.")
 
     with c4:
-        sat_e = 0.0
+        sat_e_plot = 1.0  # token bar so Standard is visible; labelled "~ 0"
         sat_h = (1.0 - pE_h) * 100
         color_h = "#2e7d32"
         st.markdown(
@@ -665,10 +665,18 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
         fig4 = go.Figure()
         fig4.add_trace(go.Bar(
             x=x_labels,
-            y=[sat_e, sat_h],
-            marker_color=["#4878d0", color_h],
+            y=[sat_e_plot, sat_h],
+            marker_color=[color_h, color_h],
             showlegend=False,
         ))
+        fig4.add_annotation(
+            x=x_labels[0],
+            y=sat_e_plot,
+            text="~ 0",
+            showarrow=False,
+            font=dict(size=12, color=color_h),
+            yshift=14,
+        )
         fig4.add_annotation(
             x=x_labels[1],
             y=sat_h,
@@ -678,7 +686,8 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
             yshift=14,
         )
         fig4.update_layout(
-            yaxis_title="Patient Satisfaction Level for Early Requests (%)",
+            yaxis=dict(title="Patient Satisfaction Level for Early Requests (%)",
+                       range=[0, 100], tick0=0, dtick=20),
             height=360, margin=dict(t=30, b=30),
             showlegend=False,
         )
@@ -932,15 +941,19 @@ def _generate_html_report() -> str:
                            margin=_margin)
 
     # Figure 4: Patient Satisfaction Level for Early Requests (%)
+    _sat_e_plot = 1.0  # token bar so Standard is visible; labelled "~ 0"
     _sat_h = (1.0 - pE_h) * 100
     fig_sat = go.Figure()
-    fig_sat.add_trace(go.Bar(x=x2, y=[0.0, _sat_h],
-                             marker_color=[COLOR_E, "#2e7d32"],
+    fig_sat.add_trace(go.Bar(x=x2, y=[_sat_e_plot, _sat_h],
+                             marker_color=["#2e7d32", "#2e7d32"],
                              showlegend=False))
+    fig_sat.add_annotation(x=x2[0], y=_sat_e_plot, text="~ 0",
+                           showarrow=False, font=dict(size=12, color="#2e7d32"), yshift=14)
     fig_sat.add_annotation(x=x2[1], y=_sat_h, text=f"{_sat_h:.2f}",
                            showarrow=False, font=dict(size=12, color="#2e7d32"), yshift=14)
     fig_sat.update_layout(title=dict(text="Patient Satisfaction Level for Early Requests (%)", x=0.5, xanchor="center"),
-                          yaxis_title="Patient Satisfaction Level for Early Requests (%)",
+                          yaxis=dict(title="Patient Satisfaction Level for Early Requests (%)",
+                                     range=[0, 100], tick0=0, dtick=20),
                           height=380, width=620, showlegend=False, margin=dict(t=50, b=30))
 
     parts.append('<div class="row2">')
