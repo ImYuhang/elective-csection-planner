@@ -189,8 +189,9 @@ def _zip_to_session(zip_bytes: bytes) -> dict:
     if "tab1_n_runs" in result:
         result[f"{_R}t1_n_runs"] = int(result["tab1_n_runs"])
     if "tab1_means_config" in result:
-        result[f"{_R}t1_means_text"] = ", ".join(
-            f"{m:.0f}" for m in result["tab1_means_config"])
+        _means = result["tab1_means_config"]
+        if _means:
+            result[f"{_R}t1_mu_E_input"] = float(_means[0])
 
     return result
 
@@ -234,7 +235,7 @@ for _k, _v in [
     ("sb_T_max", 152.0),   ("sb_T0", 100.0), ("sb_p_ns", 0.0), ("sb_seed0", 42),
     ("t1_cE", 1.0), ("t1_cL", 2.0), ("t1_Delta_pct", 20.0), ("t1_v", 0.1),
     ("t1_gmin", 0.0), ("t1_gmax", 1.0), ("t1_gstep", 0.01),
-    ("t1_means_text", "70"), ("t1_n_runs", 50),
+    ("t1_mu_E_input", 70.0), ("t1_n_runs", 50),
     ("early_min", 3.0), ("early_max", 10.0), ("early_mean", 7.0), ("early_sd", 4.0),
     ("late_min",  3.0), ("late_max",  10.0), ("late_mean",  7.0), ("late_sd",  4.0),
 ]:
@@ -272,30 +273,33 @@ def _sb_header(label: str) -> None:
 
 st.sidebar.title("Parameters")
 
-_sb_header("Cost & Equity")
-t1_cE    = st.sidebar.number_input("Early abandon cost (cᴱ)",      min_value=0.0, step=0.1,  format="%.3f", key="t1_cE",    disabled=_tab1_locked)
-t1_cL    = st.sidebar.number_input("Late abandon cost (cᴸ)",       min_value=0.0, step=0.1,  format="%.3f", key="t1_cL",    disabled=_tab1_locked)
-t1_v     = st.sidebar.number_input("Reserved-slot value (v)",       min_value=0.0, step=0.01, format="%.3f", key="t1_v",     disabled=_tab1_locked)
-t1_Delta_pct = st.sidebar.number_input("Equity tolerance Δ (%)",    min_value=0.0, step=1.0,  format="%.1f", key="t1_Delta_pct", disabled=_tab1_locked)
+_sb_header("Cost")
+st.sidebar.markdown(
+    "<div style='font-size:0.875rem;margin-bottom:-14px'>Cost of a Canceled / Unperformed Scheduled Procedure:</div>",
+    unsafe_allow_html=True,
+)
+t1_cE    = st.sidebar.number_input("For Early Appointment Request",  min_value=0.0, step=0.1,  format="%.3f", key="t1_cE",    disabled=_tab1_locked)
+t1_cL    = st.sidebar.number_input("For Late Appointment Request",   min_value=0.0, step=0.1,  format="%.3f", key="t1_cL",    disabled=_tab1_locked)
 
-_sb_header("Lead time")
-means_text_t1 = st.sidebar.text_input(
-    "Allocation to planned date of delivery means (μᴱ) for early engagers (days)",
-    key="t1_means_text", disabled=_tab1_locked)
-try:
-    means_list_t1 = sorted(set(float(x.strip()) for x in means_text_t1.split(",") if x.strip()))
-    if not means_list_t1: raise ValueError
-    if len(means_list_t1) > 1:
-        st.sidebar.caption(
-            f"{len(means_list_t1)} values: " + ", ".join(f"{m:.0f}" for m in means_list_t1))
-except Exception:
-    st.sidebar.error("Please enter valid comma-separated numbers.")
-    means_list_t1 = []
-st.sidebar.caption(
-    "Enter multiple comma-separated values to evaluate several μᴱ at once.")
+_sb_header("Performance")
+t1_v     = st.sidebar.number_input("Satisfaction Value of Early Appointment Request",       min_value=0.0, step=0.01, format="%.3f", key="t1_v",     disabled=_tab1_locked)
+st.sidebar.markdown(
+    "<div style='font-size:0.85em;font-style:italic;color:#666;margin-top:-10px;margin-bottom:8px'>"
+    "reducing patient anxiety and decreasing follow-up engagement by reserving slots for early appointment requests"
+    "</div>",
+    unsafe_allow_html=True,
+)
+t1_Delta_pct = st.sidebar.number_input("Maximum Gap in Unmet Requests (Early vs Late) (%)",    min_value=0.0, step=1.0,  format="%.1f", key="t1_Delta_pct", disabled=_tab1_locked)
 
-st.sidebar.markdown("**Baseline Lead Time**")
-with st.sidebar.expander("Early engagers", expanded=False):
+_sb_header("Time to Delivery")
+mu_E_t1 = st.sidebar.number_input(
+    "Advance Booking Window for Early Appointment Requests (days)",
+    min_value=0.0, step=1.0, format="%.0f",
+    key="t1_mu_E_input", disabled=_tab1_locked)
+means_list_t1 = [float(mu_E_t1)]
+
+st.sidebar.markdown("**Baseline Time to Delivery**")
+with st.sidebar.expander("Early Appointment Requests", expanded=False):
     early_F = st.selectbox("Distribution",
         ["Lognormal (truncated)", "Uniform", "Normal (truncated)", "Deterministic"],
         index=0, key="early_F_sel")
@@ -308,7 +312,7 @@ with st.sidebar.expander("Early engagers", expanded=False):
     elif early_F == "Deterministic":
         early_params["c"] = st.number_input("Constant (days)", 0.01, 10000.0, value=7.0, step=0.1, key="early_c")
 
-with st.sidebar.expander("Late engagers", expanded=False):
+with st.sidebar.expander("Late Appointment Requests", expanded=False):
     late_F = st.selectbox("Distribution",
         ["Lognormal (truncated)", "Uniform", "Normal (truncated)", "Deterministic"],
         index=0, key="late_F_sel")
@@ -321,39 +325,36 @@ with st.sidebar.expander("Late engagers", expanded=False):
     elif late_F == "Deterministic":
         late_params["c"] = st.number_input("Constant (days)", 0.01, 10000.0, value=7.0, step=0.1, key="late_c")
 
-_sb_header("Service Time")
+_sb_header("Theatre Slots")
 def _svc_ui(prefix: str, default_p2: float = 0.03) -> Dict[str, Any]:
-    with st.sidebar.expander(f"{prefix} engagers", expanded=False):
-        dist = st.selectbox("Distribution", ["Discrete (1 or 2 slots)", "Exponential"],
+    with st.sidebar.expander(f"{prefix} Appointment Requests", expanded=False):
+        dist = st.selectbox("Distribution", ["Discrete (1 or 2 Slots)", "Exponential"],
                             index=0, key=f"svc_dist_{prefix}")
         cfg: Dict[str, Any] = {"dist": dist}
         if dist.startswith("Discrete"):
-            cfg["svc1"] = st.number_input("1-slot duration", 0.001, 10000.0, value=1.0, step=0.1, key=f"svc1_{prefix}")
-            cfg["svc2"] = st.number_input("2-slot duration", cfg["svc1"]+0.001, 10000.0, value=2.0, step=0.1, key=f"svc2_{prefix}")
-            cfg["p2"]   = st.slider("P(2-slot)", 0.0, 1.0, float(default_p2), 0.01, key=f"p2_{prefix}")
+            cfg["svc1"] = 1.0
+            cfg["svc2"] = 2.0
+            cfg["p2"]   = st.slider("Proportion of Cases Requiring 2 Slots", 0.0, 1.0, float(default_p2), 0.01, key=f"p2_{prefix}")
         else:
-            cfg["mu"] = st.number_input("Exponential rate μ", 1e-6, 10000.0, value=5.0, step=0.1, key=f"mu_{prefix}")
+            cfg["mu"] = st.number_input("Exponential Rate μ", 1e-6, 10000.0, value=5.0, step=0.1, key=f"mu_{prefix}")
     return cfg
 
 svc_E = _svc_ui("Early")
 svc_L = _svc_ui("Late")
 
-_sb_header("γ* Search")
-t1_gstep = st.sidebar.number_input("γ Grid Step", min_value=0.01, max_value=1.0,
-                                    step=0.01, format="%.2f",
-                                    key="t1_gstep", disabled=_tab1_locked)
-t1_gmin = st.sidebar.number_input("γ min", 0.0, 1.0, step=0.05, key="t1_gmin",
-                                   disabled=_tab1_locked)
-t1_gmax = st.sidebar.number_input("γ max", 0.0, 1.0, step=0.05, key="t1_gmax",
-                                   disabled=_tab1_locked)
+# γ* search defaults (kept as hardcoded values; sidebar UI removed)
+t1_gmin  = float(st.session_state.get("t1_gmin",  0.0))
+t1_gmax  = float(st.session_state.get("t1_gmax",  1.0))
+t1_gstep = float(st.session_state.get("t1_gstep", 0.01))
 
 _sb_header("Experiment Settings")
-t1_n_runs = st.sidebar.number_input("Replications", 1, 500, step=5, key="t1_n_runs",
+t1_n_runs = st.sidebar.number_input("Number of Simulation Runs", 1, 500, step=5, key="t1_n_runs",
                                      disabled=_tab1_locked)
-T_max     = st.sidebar.number_input("Total time T (weeks)", 1, 10000, step=52, key="sb_T_max")
-T0_warmup = st.sidebar.number_input("Warm-up period T₀ (weeks)", 0, int(T_max), step=10, key="sb_T0")
-p_ns   = st.sidebar.slider("No-show probability p", 0.0, 1.0, step=0.01, key="sb_p_ns")
-seed0  = st.sidebar.number_input("Base random seed", 0, 10_000_000, step=1, key="sb_seed0")
+T_max     = st.sidebar.number_input("Total Model Duration", 1, 10000, step=52, key="sb_T_max")
+T0_warmup = st.sidebar.number_input("Initial Run-In Period", 0, int(T_max), step=10, key="sb_T0")
+p_ns   = st.sidebar.slider("No-Show Probability p", 0.0, 1.0, step=0.01, key="sb_p_ns")
+# Base random seed default (sidebar UI removed)
+seed0  = int(st.session_state.get("sb_seed0", 42))
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Simulation helpers
@@ -563,7 +564,7 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
     gstar  = hyb_data["gamma_star"]
     NE_star = gstar * N
     NL_star = N - NE_star
-    lbl_h  = f"Optimal dedicated-EDF (μᴱ={mu_E:.0f}, γ*={gstar:.3f})"
+    lbl_h  = f"Optimal Reservation Approach (μᴱ={mu_E:.0f}, γ*={gstar:.3f})"
 
     ann_E, ann_L = _ann_headcounts(lE, lL)
     pE_e, pL_e, pE_e_sd, pL_e_sd, lE_e, lL_e, cost_e, cost_e_sd = _policy_metrics(edf_data, ann_E, ann_L, cE, cL)
@@ -572,97 +573,101 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
     aband_cost_h = cE * lE_h + cL * lL_h  # Hybrid case-loss cost (no slot reward)
 
     # Short x-axis labels (policies); cohort = bar colour
-    x_labels = ["pooled-EDF", f"dedicated-EDF (μᴱ={mu_E:.0f})"]
+    x_labels = ["Standard Approach", "Reservation Approach"]
     COLOR_E = "#4878d0"
     COLOR_L = "#ee854a"
-    _leg = dict(orientation="h", yanchor="bottom", y=1.01, xanchor="right", x=1)
+    _leg = dict(orientation="h", yanchor="top", y=-0.18, xanchor="center", x=0.5)
+    _title_style = "text-align:center;font-weight:600"
 
     # ── Row 1 ──────────────────────────────────────────────────────────────
     c1, c2 = st.columns(2)
 
     with c1:
-        st.markdown("**Case-loss fractions**")
+        st.markdown(f"<div style='{_title_style}'>Case-Loss Fractions (%)</div>", unsafe_allow_html=True)
         fig = go.Figure()
-        fig.add_trace(go.Bar(name="Early engagers", x=x_labels,
+        fig.add_trace(go.Bar(name="Early Appointment Requests", x=x_labels,
                              y=[pE_e*100, pE_h*100],
                              error_y=dict(type='data', array=[pE_e_sd*100, pE_h_sd*100], visible=True),
                              marker_color=COLOR_E))
-        fig.add_trace(go.Bar(name="Late engagers", x=x_labels,
+        fig.add_trace(go.Bar(name="Late Appointment Requests", x=x_labels,
                              y=[pL_e*100, pL_h*100],
                              error_y=dict(type='data', array=[pL_e_sd*100, pL_h_sd*100], visible=True),
                              marker_color=COLOR_L))
-        fig.update_layout(barmode="group", yaxis_title="Case-loss fraction (%)",
-                          height=360, margin=dict(t=10,b=30), legend=_leg)
+        fig.update_layout(barmode="group", yaxis_title="Case-Loss Fractions (%)",
+                          height=360, margin=dict(t=10,b=80), legend=_leg)
         st.plotly_chart(fig, use_container_width=True, key=f"frac_{mu_E}")
+        st.caption("The percentage of patients whose cases were cancelled or unplanned per week.")
 
     with c2:
-        st.markdown("**Estimated annual case losses**")
+        st.markdown(f"<div style='{_title_style}'>Estimated Number of Case Losses per Year</div>", unsafe_allow_html=True)
         fig2 = go.Figure()
-        fig2.add_trace(go.Bar(name="Early engagers", x=x_labels,
+        fig2.add_trace(go.Bar(name="Early Appointment Requests", x=x_labels,
                               y=[lE_e, lE_h],
                               error_y=dict(type='data', array=[pE_e_sd*ann_E, pE_h_sd*ann_E], visible=True),
                               marker_color=COLOR_E))
-        fig2.add_trace(go.Bar(name="Late engagers", x=x_labels,
+        fig2.add_trace(go.Bar(name="Late Appointment Requests", x=x_labels,
                               y=[lL_e, lL_h],
                               error_y=dict(type='data', array=[pL_e_sd*ann_L, pL_h_sd*ann_L], visible=True),
                               marker_color=COLOR_L))
         fig2.update_layout(barmode="group",
-                           yaxis_title="Estimated annual case losses",
-                           height=360, margin=dict(t=10,b=30), legend=_leg)
+                           yaxis_title="Estimated Number of Case Losses per Year",
+                           height=360, margin=dict(t=10,b=80), legend=_leg)
         st.plotly_chart(fig2, use_container_width=True, key=f"loss_{mu_E}")
+        st.caption("The number of patients whose procedures were cancelled or occurred unplanned over a 52-week period.")
 
     # ── Row 2 ──────────────────────────────────────────────────────────────
     c3, c4 = st.columns(2)
 
     with c3:
-        st.markdown(f"**Total case-loss cost  (cᴱ={cE:.2f}, cᴸ={cL:.2f})**")
+        st.markdown(
+            f"<div style='{_title_style}'>Annual Cost Burden of Cancelled/Unplanned Cases (in Relative Cost Units)</div>",
+            unsafe_allow_html=True,
+        )
         fig3 = go.Figure()
-        fig3.add_trace(go.Bar(name="Early component", x=x_labels,
+        fig3.add_trace(go.Bar(name="Early Component", x=x_labels,
                               y=[cE*lE_e, cE*lE_h],
                               error_y=dict(type='data', array=[cE*pE_e_sd*ann_E, cE*pE_h_sd*ann_E], visible=True),
                               marker_color=COLOR_E))
-        fig3.add_trace(go.Bar(name="Late component", x=x_labels,
+        fig3.add_trace(go.Bar(name="Late Component", x=x_labels,
                               y=[cL*lL_e, cL*lL_h],
                               error_y=dict(type='data', array=[cL*pL_e_sd*ann_L, cL*pL_h_sd*ann_L], visible=True),
                               marker_color=COLOR_L))
         fig3.update_layout(barmode="stack",
-                           yaxis_title="Annual case-loss cost",
-                           height=360, margin=dict(t=10,b=30), legend=_leg)
+                           yaxis_title="Annual Cost Burden of Cancelled/Unplanned Cases (in Relative Cost Units)",
+                           height=360, margin=dict(t=10,b=80), legend=_leg)
         st.plotly_chart(fig3, use_container_width=True, key=f"cost_{mu_E}")
+        st.caption("The total annual impact of cancelled or unplanned cases, expressed in relative cost units.")
 
     with c4:
-        savings = cost_e - cost_h
-        pct     = 100*savings/cost_e if cost_e > 0 else 0.0
-        sav_sd  = math.sqrt(cost_e_sd**2 + cost_h_sd**2)
-        color_h = "#2e7d32" if savings >= 0 else "#c62828"
-        sign    = "↓" if savings >= 0 else "↑"
+        sat_e = 0.0
+        sat_h = _slot_reward_h  # v × γ* × N × 52
+        color_h = "#2e7d32"
         st.markdown(
-            f"**Total cost C(γ): EDF vs dedicated-EDF** &nbsp;&nbsp;"
-            f'<span style="color:{color_h};font-size:1.05em">'
-            f'{sign} {abs(savings):.1f} cost units/yr ({abs(pct):.1f}%)</span>',
+            f"<div style='{_title_style}'>Annual Patient Satisfaction for Early Requests</div>",
             unsafe_allow_html=True,
         )
         fig4 = go.Figure()
         fig4.add_trace(go.Bar(
             x=x_labels,
-            y=[cost_e, cost_h],
-            error_y=dict(type='data', array=[cost_e_sd, cost_h_sd], visible=True),
+            y=[sat_e, sat_h],
             marker_color=["#4878d0", color_h],
             showlegend=False,
         ))
         fig4.add_annotation(
             x=x_labels[1],
-            y=cost_h + cost_h_sd * 1.4,
-            text=f"{sign}{abs(savings):.1f} ({abs(pct):.1f}%)",
+            y=sat_h,
+            text=f"{sat_h:.1f}",
             showarrow=False,
             font=dict(size=12, color=color_h),
+            yshift=14,
         )
         fig4.update_layout(
-            yaxis_title="Annual total cost C(γ) (cost units/yr)",
+            yaxis_title="Annual Patient Satisfaction for Early Requests",
             height=360, margin=dict(t=30, b=30),
             showlegend=False,
         )
-        st.plotly_chart(fig4, use_container_width=True, key=f"totalcost_{mu_E}")
+        st.plotly_chart(fig4, use_container_width=True, key=f"satisfaction_{mu_E}")
+        st.caption("The annual value of reserving slots for early appointment requests, expressed in relative value units (reflecting reduced patient anxiety and decreased follow-up engagement).")
 
     # ── Numeric summary ────────────────────────────────────────────────────
     def _stat_cell(stats_df, key, as_pct=False):
@@ -673,53 +678,38 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
             return f"{m*100:.2f} ± {s*100:.2f}"
         return f"{m:.3f} ± {s:.3f}"
 
-    with st.expander("Numeric summary table"):
+    with st.expander("Numeric Summary Table", expanded=False):
         summary = pd.DataFrame({
             "Metric": [
-                "Service rate (%)",
-                "Case-loss rate (%)",
-                "Utilisation (%)",
-                "p_E — early case-loss fraction (%)",
-                "p_L — late case-loss fraction (%)",
-                f"Case losses — Early (52×λᴱ={ann_E:.0f}/yr)",
-                f"Case losses — Late  (52×λᴸ={ann_L:.0f}/yr)",
-                "Case losses — Total",
-                "Case-loss cost (cost units/yr)",
-                "Total cost C(γ) (cost units/yr)",
-                "Avg queue wait — Early served (weeks)",
-                "Avg slack — Early served (weeks)",
-                "Nᴱ — reserved Early slots",
-                "Nᴸ — reserved Late slots",
+                "Case-Loss Fractions (%) — Early Appointment Requests",
+                "Case-Loss Fractions (%) — Late Appointment Requests",
+                "Estimated Number of Case Losses per Year — Early Appointment Requests",
+                "Estimated Number of Case Losses per Year — Late Appointment Requests",
+                "Estimated Number of Case Losses per Year — Total",
+                "Annual Cost Burden of Cancelled/Unplanned Cases (in Relative Cost Units)",
+                "Annual Patient Satisfaction for Early Requests",
+                "Number of Slots Reserved for Early Appointment Request",
+                "Number of Slots Reserved for Late Appointment Request",
             ],
-            "pooled-EDF": [
-                _stat_cell(edf_data["stats"], "service_rate", as_pct=True),
-                _stat_cell(edf_data["stats"], "abandon_rate", as_pct=True),
-                _stat_cell(edf_data["stats"], "util_1",       as_pct=True),
+            "Standard Approach": [
                 f"{pE_e*100:.2f} ± {pE_e_sd*100:.2f}",
                 f"{pL_e*100:.2f} ± {pL_e_sd*100:.2f}",
                 f"{lE_e:.1f} ± {pE_e_sd*ann_E:.1f}",
                 f"{lL_e:.1f} ± {pL_e_sd*ann_L:.1f}",
                 f"{lE_e+lL_e:.1f}",
                 f"{cost_e:.1f} ± {cost_e_sd:.1f}",
-                f"{cost_e:.1f} ± {cost_e_sd:.1f}",
-                _stat_cell(edf_data["stats"], "es_wait_active"),
-                _stat_cell(edf_data["stats"], "es_slack"),
+                "0.0",
                 "—",
                 "—",
             ],
-            lbl_h: [
-                _stat_cell(hyb_data["stats"], "service_rate", as_pct=True),
-                _stat_cell(hyb_data["stats"], "abandon_rate", as_pct=True),
-                _stat_cell(hyb_data["stats"], "util_1",       as_pct=True),
+            "Reservation Approach": [
                 f"{pE_h*100:.2f} ± {pE_h_sd*100:.2f}",
                 f"{pL_h*100:.2f} ± {pL_h_sd*100:.2f}",
                 f"{lE_h:.1f} ± {pE_h_sd*ann_E:.1f}",
                 f"{lL_h:.1f} ± {pL_h_sd*ann_L:.1f}",
                 f"{lE_h+lL_h:.1f}",
                 f"{aband_cost_h:.1f} ± {cost_h_sd:.1f}",
-                f"{cost_h:.1f} ± {cost_h_sd:.1f}",
-                _stat_cell(hyb_data["stats"], "es_wait_active"),
-                _stat_cell(hyb_data["stats"], "es_slack"),
+                f"{_slot_reward_h:.1f}",
                 f"{NE_star:.2f}",
                 f"{NL_star:.2f}",
             ],
@@ -803,16 +793,16 @@ def _generate_html_report() -> str:
                  f"Equity tolerance Δ={Delta_*100:.1f}%</p>")
 
     # ── Per-μᴱ comparison sections ─────────────────────────────────────────
-    x_lbl = ["pooled-EDF"]
+    x_lbl = ["Standard Approach"]
     for res in results_list_:
-        x_lbl.append(f"dedicated-EDF (μᴱ={res['mu_E']:.0f})")
+        x_lbl.append("Reservation Approach")
 
     for res in results_list_:
         mu_E_ = res["mu_E"]; gstar_ = res["gamma_star"]
         hyb_  = res["hyb"]
-        lbl_h = f"Optimal dedicated-EDF (μᴱ={mu_E_:.0f}, γ*={gstar_:.3f})"
+        lbl_h = f"Optimal Reservation Approach (μᴱ={mu_E_:.0f}, γ*={gstar_:.3f})"
         _NE_html_r = gstar_ * _N_html; _NL_html_r = _N_html - _NE_html_r
-        parts.append(f'<div class="section"><h2>pooled-EDF vs {lbl_h}</h2>')
+        parts.append(f'<div class="section"><h2>Standard Approach vs {lbl_h}</h2>')
         parts.append(f'<div class="badge">{lbl_h} — γ* = {gstar_:.3f} &nbsp;|&nbsp; '
                      f'N<sup>E</sup> = {_NE_html_r:.2f} &nbsp; N<sup>L</sup> = {_NL_html_r:.2f}</div>')
 
@@ -821,32 +811,32 @@ def _generate_html_report() -> str:
         _slot_rw_html = v_ * _NE_html_r * 52
         pE_h, pL_h, pE_h_sd, pL_h_sd, lE_h, lL_h, cost_h, cost_h_sd = \
             _policy_metrics(hyb_, ann_E_, ann_L_, cE_, cL_, slot_reward=_slot_rw_html)
-        x2 = ["pooled-EDF", f"dedicated-EDF (μᴱ={mu_E_:.0f})"]
+        x2 = ["Standard Approach", "Reservation Approach"]
 
         fig_frac = go.Figure()
-        fig_frac.add_trace(go.Bar(name="Early engagers", x=x2,
+        fig_frac.add_trace(go.Bar(name="Early Appointment Requests", x=x2,
                                   y=[pE_e*100, pE_h*100],
                                   error_y=dict(type='data', array=[pE_e_sd*100, pE_h_sd*100], visible=True),
                                   marker_color=COLOR_E))
-        fig_frac.add_trace(go.Bar(name="Late engagers", x=x2,
+        fig_frac.add_trace(go.Bar(name="Late Appointment Requests", x=x2,
                                   y=[pL_e*100, pL_h*100],
                                   error_y=dict(type='data', array=[pL_e_sd*100, pL_h_sd*100], visible=True),
                                   marker_color=COLOR_L))
-        fig_frac.update_layout(barmode="group", yaxis_title="Case-loss fraction (%)",
-                               title="Case-loss fractions", height=360, width=640, legend=_leg)
+        fig_frac.update_layout(barmode="group", yaxis_title="Case-Loss Fractions (%)",
+                               title="Case-Loss Fractions (%)", height=360, width=640, legend=_leg)
 
         fig_loss = go.Figure()
-        fig_loss.add_trace(go.Bar(name="Early engagers", x=x2,
+        fig_loss.add_trace(go.Bar(name="Early Appointment Requests", x=x2,
                                   y=[lE_e, lE_h],
                                   error_y=dict(type='data', array=[pE_e_sd*ann_E_, pE_h_sd*ann_E_], visible=True),
                                   marker_color=COLOR_E))
-        fig_loss.add_trace(go.Bar(name="Late engagers", x=x2,
+        fig_loss.add_trace(go.Bar(name="Late Appointment Requests", x=x2,
                                   y=[lL_e, lL_h],
                                   error_y=dict(type='data', array=[pL_e_sd*ann_L_, pL_h_sd*ann_L_], visible=True),
                                   marker_color=COLOR_L))
         fig_loss.update_layout(barmode="group",
-                               yaxis_title="Estimated annual case losses",
-                               title="Estimated annual case losses", height=360, width=640, legend=_leg)
+                               yaxis_title="Estimated Number of Case Losses per Year",
+                               title="Estimated Number of Case Losses per Year", height=360, width=640, legend=_leg)
 
         aband_cost_h_ = cE_ * lE_h + cL_ * lL_h  # Hybrid case-loss cost (no slot reward)
         savings = cost_e - cost_h
@@ -855,16 +845,17 @@ def _generate_html_report() -> str:
         color_s = "#2e7d32" if savings >= 0 else "#c62828"
         sign_s  = "↓" if savings >= 0 else "↑"
         fig_cost = go.Figure()
-        fig_cost.add_trace(go.Bar(name="Early component", x=x2,
+        fig_cost.add_trace(go.Bar(name="Early Component", x=x2,
                                   y=[cE_*lE_e, cE_*lE_h],
                                   error_y=dict(type='data', array=[cE_*pE_e_sd*ann_E_, cE_*pE_h_sd*ann_E_], visible=True),
                                   marker_color=COLOR_E))
-        fig_cost.add_trace(go.Bar(name="Late component", x=x2,
+        fig_cost.add_trace(go.Bar(name="Late Component", x=x2,
                                   y=[cL_*lL_e, cL_*lL_h],
                                   error_y=dict(type='data', array=[cL_*pL_e_sd*ann_L_, cL_*pL_h_sd*ann_L_], visible=True),
                                   marker_color=COLOR_L))
-        fig_cost.update_layout(barmode="stack", yaxis_title="Annual case-loss cost (cost units/yr)",
-                               title=f"Total case-loss cost  (cᴱ={cE_:.2f}, cᴸ={cL_:.2f})",
+        fig_cost.update_layout(barmode="stack",
+                               yaxis_title="Annual Cost Burden of Cancelled/Unplanned Cases (in Relative Cost Units)",
+                               title="Annual Cost Burden of Cancelled/Unplanned Cases (in Relative Cost Units)",
                                height=360, width=640, legend=_leg)
 
         fig_sav = go.Figure()
@@ -875,8 +866,8 @@ def _generate_html_report() -> str:
         fig_sav.add_annotation(x=x2[1], y=cost_h + cost_h_sd * 1.4,
                                text=f"{sign_s}{abs(savings):.1f} cost units/yr ({abs(pct):.1f}%)",
                                showarrow=False, font=dict(size=12, color=color_s))
-        fig_sav.update_layout(yaxis_title="Annual total cost C(γ) (cost units/yr)", showlegend=False,
-                              title=f"Total cost C(γ): EDF vs dedicated-EDF (v={v_:.3f})",
+        fig_sav.update_layout(yaxis_title="Annual Total Cost C(γ) (cost units/yr)", showlegend=False,
+                              title=f"Total Cost C(γ): Standard vs Reservation (v={v_:.3f})",
                               height=360, width=640)
 
         parts.append('<div class="row2">')
@@ -898,55 +889,40 @@ def _generate_html_report() -> str:
 
         _summary_df = pd.DataFrame({
             "Metric": [
-                "Service rate (%)",
-                "Case-loss rate (%)",
-                "Utilisation (%)",
-                "p_E — early case-loss fraction (%)",
-                "p_L — late case-loss fraction (%)",
-                f"Case losses — Early (52×λᴱ={ann_E_:.0f}/yr)",
-                f"Case losses — Late  (52×λᴸ={ann_L_:.0f}/yr)",
-                "Case losses — Total",
-                "Case-loss cost (cost units/yr)",
-                "Total cost C(γ) (cost units/yr)",
-                "Avg queue wait — Early served (weeks)",
-                "Avg slack — Early served (weeks)",
-                "Nᴱ — reserved Early slots",
-                "Nᴸ — reserved Late slots",
+                "Case-Loss Fractions (%) — Early Appointment Requests",
+                "Case-Loss Fractions (%) — Late Appointment Requests",
+                "Estimated Number of Case Losses per Year — Early Appointment Requests",
+                "Estimated Number of Case Losses per Year — Late Appointment Requests",
+                "Estimated Number of Case Losses per Year — Total",
+                "Annual Cost Burden of Cancelled/Unplanned Cases (in Relative Cost Units)",
+                "Annual Patient Satisfaction for Early Requests",
+                "Number of Slots Reserved for Early Appointment Request",
+                "Number of Slots Reserved for Late Appointment Request",
             ],
-            "pooled-EDF": [
-                _stat_cell_html(edf_data_.get("stats"), "service_rate", as_pct=True),
-                _stat_cell_html(edf_data_.get("stats"), "abandon_rate", as_pct=True),
-                _stat_cell_html(edf_data_.get("stats"), "util_1",       as_pct=True),
+            "Standard Approach": [
                 f"{pE_e*100:.2f} ± {pE_e_sd*100:.2f}",
                 f"{pL_e*100:.2f} ± {pL_e_sd*100:.2f}",
                 f"{lE_e:.1f} ± {pE_e_sd*ann_E_:.1f}",
                 f"{lL_e:.1f} ± {pL_e_sd*ann_L_:.1f}",
                 f"{lE_e+lL_e:.1f}",
                 f"{cost_e:.1f} ± {cost_e_sd:.1f}",
-                f"{cost_e:.1f} ± {cost_e_sd:.1f}",
-                _stat_cell_html(edf_data_.get("stats"), "es_wait_active"),
-                _stat_cell_html(edf_data_.get("stats"), "es_slack"),
+                "0.0",
                 "—",
                 "—",
             ],
-            lbl_h: [
-                _stat_cell_html(hyb_.get("stats"), "service_rate", as_pct=True),
-                _stat_cell_html(hyb_.get("stats"), "abandon_rate", as_pct=True),
-                _stat_cell_html(hyb_.get("stats"), "util_1",       as_pct=True),
+            "Reservation Approach": [
                 f"{pE_h*100:.2f} ± {pE_h_sd*100:.2f}",
                 f"{pL_h*100:.2f} ± {pL_h_sd*100:.2f}",
                 f"{lE_h:.1f} ± {pE_h_sd*ann_E_:.1f}",
                 f"{lL_h:.1f} ± {pL_h_sd*ann_L_:.1f}",
                 f"{lE_h+lL_h:.1f}",
                 f"{aband_cost_h_:.1f} ± {cost_h_sd:.1f}",
-                f"{cost_h:.1f} ± {cost_h_sd:.1f}",
-                _stat_cell_html(hyb_.get("stats"), "es_wait_active"),
-                _stat_cell_html(hyb_.get("stats"), "es_slack"),
+                f"{_slot_rw_html:.1f}",
                 f"{_NE_html_r:.2f}",
                 f"{_NL_html_r:.2f}",
             ],
         })
-        parts.append("<h3>Numeric summary table</h3>")
+        parts.append("<h3>Numeric Summary Table</h3>")
         parts.append(_tbl(_summary_df))
         parts.append('</div>')
 
@@ -955,27 +931,29 @@ def _generate_html_report() -> str:
 
 
 st.markdown(
-    "This tool compares two approaches to scheduling planned (elective) C-sections. "
-    "The **standard approach** (pooled-EDF) allocates all operating slots to a shared waiting list, "
-    "giving priority to the patient whose planned delivery date is soonest. "
-    "The **reservation approach** (Optimal dedicated-EDF) sets aside a dedicated fraction of slots for women who book early."
+    "We distinguish two types of appointment requests:\n"
+    "- An **early appointment request** is made between the start of pregnancy and 35 days before the planned C-section date.\n"
+    "- A **late appointment request** is made within 35 days of the planned C-section date.\n\n"
+    "This tool compares two approaches to scheduling planned (elective) C-sections:\n"
+    "- The **standard approach** allocates all operating slots to a shared waiting list, giving priority to the patient whose planned delivery date is soonest (with equal weight given to early and late requests).\n"
+    "- The **reservation approach** sets aside a dedicated fraction of slots for women who book early (with higher weight given to early requests)."
 )
 
 # ── Save / Load session ───────────────────────────────────────────────────
-with st.expander("💾  Save / Load session", expanded=False):
+with st.expander("💾  Save / Load Session", expanded=False):
     st.caption(
         "Sessions are saved as ZIP files to the **saved sessions/** folder inside the app folder."
     )
     sv_col, ld_col = st.columns(2)
     with sv_col:
-        st.markdown("**Save** current results")
+        st.markdown("**Save** Current Results")
         if st.session_state.get("tab1_results"):
             _n = len(st.session_state.get("tab1_results", []))
             _sname = st.text_input(
-                "Session name", value="session_1",
+                "Session Name", value="session_1",
                 key="save_session_name",
                 placeholder="Enter a name (without extension)")
-            if st.button(f"💾 Save session ({_n} μᴱ value(s))", key="save_session_btn"):
+            if st.button(f"💾 Save Session ({_n} μᴱ value(s))", key="save_session_btn"):
                 _sname_clean = _sname.strip().replace("/", "_").replace("\\", "_") or "session"
                 _spath = os.path.join(SESSIONS_DIR, f"{_sname_clean}.zip")
                 with open(_spath, "wb") as _f:
@@ -984,14 +962,14 @@ with st.expander("💾  Save / Load session", expanded=False):
         else:
             st.info("No results to save yet — run a simulation first.")
     with ld_col:
-        st.markdown("**Load** a saved session")
+        st.markdown("**Load** a Saved Session")
         _existing = sorted(
             f for f in os.listdir(SESSIONS_DIR) if f.endswith(".zip"))
         if _existing:
             _sel = st.selectbox(
-                "Choose session", _existing, key="load_session_sel",
+                "Choose Session", _existing, key="load_session_sel",
                 label_visibility="collapsed")
-            if st.button("↑ Load session", key="restore_btn"):
+            if st.button("↑ Load Session", key="restore_btn"):
                 with open(os.path.join(SESSIONS_DIR, _sel), "rb") as _f:
                     _loaded = _zip_to_session(_f.read())
                 for _k, _v in _loaded.items():
@@ -1004,26 +982,25 @@ with st.expander("💾  Save / Load session", expanded=False):
 
 results_exist = bool(st.session_state.get("tab1_results"))
 
-_cfg_col, _ = st.columns([1, 1])
-with _cfg_col:
-    with st.container(border=True):
-        st.markdown(
-            '<div style="background:#1b4f8a;color:#ffffff;padding:5px 10px;'
-            'border-radius:5px;margin:0 0 10px 0;font-size:0.78em;'
-            'font-weight:700;letter-spacing:0.09em;text-transform:uppercase;">'
-            'Demand &amp; Slots</div>',
-            unsafe_allow_html=True)
-        _d_left, _gap, _d_right = st.columns([1, 0.3, 1])
-        with _d_left:
-            λE = st.number_input("Demand for early engagers (λᴱ)", 0.0, 500.0,
-                                 step=0.001, format="%.3f",
-                                 key="sb_lambdaE", disabled=results_exist)
-            λL = st.number_input("Demand for late engagers (λᴸ)",  0.0, 500.0,
-                                 step=0.001, format="%.3f",
-                                 key="sb_lambdaL", disabled=results_exist)
-        with _d_right:
-            N_servers = st.number_input("Slots N", 1, 500, step=1,
-                                        key="sb_N", disabled=results_exist)
+with st.container(border=True):
+    st.markdown(
+        '<div style="background:#1b4f8a;color:#ffffff;padding:5px 10px;'
+        'border-radius:5px;margin:0 0 10px 0;font-size:0.78em;'
+        'font-weight:700;letter-spacing:0.09em;text-transform:uppercase;">'
+        'Demand &amp; Slots</div>',
+        unsafe_allow_html=True)
+    _d_e, _d_l, _d_n = st.columns(3)
+    with _d_e:
+        λE = st.number_input("Requests from Early Appointment", 0.0, 500.0,
+                             step=0.001, format="%.3f",
+                             key="sb_lambdaE", disabled=results_exist)
+    with _d_l:
+        λL = st.number_input("Requests from Late Appointment",  0.0, 500.0,
+                             step=0.001, format="%.3f",
+                             key="sb_lambdaL", disabled=results_exist)
+    with _d_n:
+        N_servers = st.number_input("Slots", 1, 500, step=1,
+                                    key="sb_N", disabled=results_exist)
 
 params_base = dict(
     T_max=float(T_max), warmup=float(T0_warmup),
@@ -1042,12 +1019,9 @@ run_clicked = False
 btn_col, reset_col = st.columns([5, 1])
 with btn_col:
     if not results_exist and means_list_t1:
-        _lbl = (f"▶  Run pooled-EDF + Optimal dedicated-EDF (μᴱ = {means_list_t1[0]:.0f})"
-                if len(means_list_t1) == 1
-                else f"▶  Run pooled-EDF + Optimal dedicated-EDF ({len(means_list_t1)} μᴱ values)")
-        run_clicked = st.button(_lbl, key="t1_run", type="primary")
+        run_clicked = st.button("Run Simulation", key="t1_run", type="primary")
     elif results_exist:
-        st.success(f"✓ Run complete ({len(st.session_state.get('tab1_results', []))} μᴱ value(s)).")
+        st.success("✓ Run complete.")
 
 with reset_col:
     if results_exist:
@@ -1079,10 +1053,10 @@ if run_clicked and means_list_t1:
     gc = st.session_state["tab1_gamma_config"]
     for i, mu in enumerate(means_list_t1):
         if i == 0:
-            with st.spinner(f"Running pooled-EDF + Optimal dedicated-EDF (μᴱ = {mu:.0f})…"):
+            with st.spinner(""):
                 _run_edf_and_first_hybrid(mu, gc, "")
         else:
-            with st.spinner(f"Running Optimal dedicated-EDF  (μᴱ = {mu:.0f})…"):
+            with st.spinner(""):
                 _run_hybrid_only(mu, gc, "")
     st.rerun()
 
@@ -1101,17 +1075,17 @@ if results_exist:
     _T0_s  = float(st.session_state.get("tab1_T0",     T0_warmup))
     nr_s   = st.session_state.get("tab1_n_runs", 50)
 
-    for i, res in enumerate(results_list):
-        is_latest = (i == len(results_list) - 1)
+    st.subheader("Simulation Results")
+    for res in results_list:
         _gs_exp = res['gamma_star']
         _NE_exp = _gs_exp * _N_s; _NL_exp = _N_s - _NE_exp
-        with st.expander(
-            f"pooled-EDF  vs  Optimal dedicated-EDF  (μᴱ = {res['mu_E']:.0f})"
-            f"  with  γ* = {_gs_exp:.3f},  Nᴱ = {_NE_exp:.2f},  Nᴸ = {_NL_exp:.2f}",
-            expanded=is_latest
-        ):
-            _comparison_charts(edf_base, res["hyb"], lE_s, lL_s, cE_s, cL_s,
-                               v=v_s, N=_N_s, T=_T_s, T0=_T0_s)
+        with st.container(border=True):
+            st.markdown(
+                f"**Number of Slots Reserved for Early Appointment Request:** {_NE_exp:.2f}  \n"
+                f"**Number of Slots Reserved for Late Appointment Request:** {_NL_exp:.2f}"
+            )
+        _comparison_charts(edf_base, res["hyb"], lE_s, lL_s, cE_s, cL_s,
+                           v=v_s, N=_N_s, T=_T_s, T0=_T0_s)
 
     st.divider()
     # Cache HTML so it is generated only once per result set, not on every render.
