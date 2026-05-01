@@ -649,7 +649,8 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
             showlegend=False, hoverinfo="skip"))
         fig3.update_layout(barmode="stack",
                            yaxis_title="Annual Cost Burden",
-                           height=360, margin=dict(t=10,b=80), legend=_leg)
+                           height=360, margin=dict(t=10,b=80),
+                           legend=dict(**_leg, traceorder="normal"))
         st.plotly_chart(fig3, use_container_width=True, key=f"cost_{mu_E}")
         st.caption("The total annual impact of cancelled / unperformed cases, expressed in relative cost units.")
 
@@ -926,7 +927,9 @@ def _generate_html_report() -> str:
     fig_cost.update_layout(barmode="stack",
                            title=dict(text="Annual Cost Burden of Cancelled / Unperformed Cases (in Relative Cost Units)", x=0.5, xanchor="center"),
                            yaxis_title="Annual Cost Burden",
-                           height=380, width=620, legend=_leg, margin=_margin)
+                           height=380, width=620,
+                           legend=dict(**_leg, traceorder="normal"),
+                           margin=_margin)
 
     # Figure 4: Patient Satisfaction Level for Early Requests (%)
     _sat_h = (1.0 - pE_h) * 100
