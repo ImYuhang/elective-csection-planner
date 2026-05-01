@@ -723,26 +723,48 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
 # ═══════════════════════════════════════════════════════════════════════════
 def _generate_html_report() -> str:
     """
-    Build a self-contained interactive HTML report from current session results.
-    All Plotly figures are embedded with Plotly.js so the file works offline.
+    Self-contained HTML report mirroring the interface: same titles, captions,
+    metric names, and reserved-slot summary. Plain English; no math notation.
     """
     import plotly.io as pio
 
     results_list_ = st.session_state.get("tab1_results", [])
-    edf_data_     = st.session_state.get("tab1_edf", {})
-    lE_           = st.session_state.get("tab1_lambdaE", float(λE))
-    lL_           = st.session_state.get("tab1_lambdaL", float(λL))
-    gc_           = st.session_state.get("tab1_gamma_config", {})
-    cE_           = gc_.get("cE", 1.0); cL_ = gc_.get("cL", 2.0); v_ = gc_.get("v", 0.0)
-    Delta_        = gc_.get("Delta", 0.2)
+    if not results_list_:
+        return "<html><body><p>No simulation results available.</p></body></html>"
+
+    res        = results_list_[0]
+    edf_data_  = st.session_state.get("tab1_edf", {})
+    hyb_       = res["hyb"]
+    mu_E_      = float(res["mu_E"])
+    gstar_     = float(res["gamma_star"])
+
+    lE_   = float(st.session_state.get("tab1_lambdaE", float(λE)))
+    lL_   = float(st.session_state.get("tab1_lambdaL", float(λL)))
+    gc_   = st.session_state.get("tab1_gamma_config", {})
+    cE_   = float(gc_.get("cE", 1.0))
+    cL_   = float(gc_.get("cL", 2.0))
+    v_    = float(gc_.get("v",  0.0))
+    Delta_= float(gc_.get("Delta", 0.2))
+    pb_   = st.session_state.get("tab1_params_base", {})
+    nr_   = int(st.session_state.get("tab1_n_runs", 50))
+    T_    = float(st.session_state.get("tab1_T_max",  float(T_max)))
+    T0_   = float(st.session_state.get("tab1_T0",     float(T0_warmup)))
+    _N_   = int(pb_.get("N", 18))
+    _NE_  = gstar_ * _N_
+    _NL_  = _N_ - _NE_
+
     ann_E_, ann_L_ = _ann_headcounts(lE_, lL_)
-    pb_           = st.session_state.get("tab1_params_base", {})
-    nr_           = st.session_state.get("tab1_n_runs", 50)
-    T_            = float(st.session_state.get("tab1_T_max", float(T_max)))
-    T0_           = float(st.session_state.get("tab1_T0", float(T0_warmup)))
-    _N_html       = int(pb_.get("N", 18))
+
+    pE_e, pL_e, pE_e_sd, pL_e_sd, lE_e, lL_e, cost_e, cost_e_sd = \
+        _policy_metrics(edf_data_, ann_E_, ann_L_, cE_, cL_)
+    _slot_rw = v_ * _NE_ * 52
+    pE_h, pL_h, pE_h_sd, pL_h_sd, lE_h, lL_h, cost_h, cost_h_sd = \
+        _policy_metrics(hyb_, ann_E_, ann_L_, cE_, cL_, slot_reward=_slot_rw)
+    aband_cost_h_ = cE_ * lE_h + cL_ * lL_h
+
     COLOR_E = "#4878d0"; COLOR_L = "#ee854a"
-    _leg = dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1)
+    _leg = dict(orientation="h", yanchor="top", y=-0.18, xanchor="center", x=0.5)
+    _margin = dict(t=50, b=80)
 
     parts = []
     first_fig = [True]
@@ -753,178 +775,200 @@ def _generate_html_report() -> str:
         return pio.to_html(fig, full_html=False, include_plotlyjs=inc,
                            config={"responsive": responsive})
 
-    def _scroll_fig_html(fig):
-        """Wide multi-column figure wrapped in a horizontal-scroll div."""
-        return f'<div style="overflow-x:auto;width:100%">{_fig_html(fig, responsive=False)}</div>'
-
     def _tbl(df: pd.DataFrame) -> str:
-        return df.to_html(index=False, border=0,
-                          classes="rtbl", escape=False)
-
-    def _tbl_metrics(df: pd.DataFrame) -> str:
-        """Like _tbl but preserves the index as a 'Metric' column."""
-        df2 = df.reset_index()
-        df2.rename(columns={df2.columns[0]: "Metric"}, inplace=True)
-        return df2.to_html(index=False, border=0, classes="rtbl", escape=False)
+        return df.to_html(index=False, border=0, classes="rtbl", escape=False)
 
     parts.append("""<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <title>Elective C-Section Simulation Report</title>
 <style>
   body{font-family:Arial,sans-serif;padding:30px 40px;max-width:1400px;margin:auto;color:#222;}
-  h1{color:#1b4f8a;} h2{color:#1b4f8a;border-bottom:2px solid #1b4f8a;padding-bottom:4px;}
-  h3{color:#333;} .section{margin-bottom:40px;}
+  h1{color:#1b4f8a;}
+  h2{color:#1b4f8a;border-bottom:2px solid #1b4f8a;padding-bottom:4px;}
+  h3{color:#333;margin-top:24px;}
+  .section{margin-bottom:40px;}
   .rtbl{border-collapse:collapse;width:100%;font-size:0.88em;}
   .rtbl th{background:#1b4f8a;color:#fff;padding:6px 10px;text-align:left;}
   .rtbl td{padding:5px 10px;border-bottom:1px solid #ddd;}
   .rtbl tr:hover td{background:#f0f4ff;}
-  .badge{display:inline-block;background:#e8f4e8;border-left:4px solid #2e7d32;
-         padding:6px 14px;border-radius:4px;margin:6px 0;font-weight:bold;}
+  .reserved-box{display:inline-block;border:1px solid #cfd8dc;border-radius:6px;
+                padding:10px 14px;margin:6px 0 18px 0;background:#f7f9fc;}
   .row2{display:flex;gap:20px;flex-wrap:wrap;}
-  .row2>div{flex:1;min-width:660px;}
+  .row2>div{flex:1;min-width:520px;}
+  .caption{font-size:0.85em;color:#555;margin:4px 0 18px 0;}
+  ul.intro{margin:0 0 16px 0;}
 </style>
 </head><body>
 """)
-    parts.append(f"<h1>Elective C-Section Simulation Report</h1>")
-    parts.append(f"<p>Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')} &nbsp;|&nbsp; "
-                 f"Replications: {nr_} &nbsp;|&nbsp; T={T_:.0f} wks, T₀={T0_:.0f} wks &nbsp;|&nbsp; "
-                 f"λᴱ={lE_:.3f}, λᴸ={lL_:.3f}, N={pb_.get('N','?')} &nbsp;|&nbsp; "
-                 f"cᴱ={cE_:.2f}, cᴸ={cL_:.2f}, v={v_:.3f} &nbsp;|&nbsp; "
-                 f"Equity tolerance Δ={Delta_*100:.1f}%</p>")
 
-    # ── Per-μᴱ comparison sections ─────────────────────────────────────────
-    x_lbl = ["Standard Approach"]
-    for res in results_list_:
-        x_lbl.append("Reservation Approach")
+    parts.append("<h1>Elective C-Section Simulation Report</h1>")
+    parts.append(f"<p>Generated: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}</p>")
 
-    for res in results_list_:
-        mu_E_ = res["mu_E"]; gstar_ = res["gamma_star"]
-        hyb_  = res["hyb"]
-        lbl_h = f"Optimal Reservation Approach (μᴱ={mu_E_:.0f}, γ*={gstar_:.3f})"
-        _NE_html_r = gstar_ * _N_html; _NL_html_r = _N_html - _NE_html_r
-        parts.append(f'<div class="section"><h2>Standard Approach vs {lbl_h}</h2>')
-        parts.append(f'<div class="badge">{lbl_h} — γ* = {gstar_:.3f} &nbsp;|&nbsp; '
-                     f'N<sup>E</sup> = {_NE_html_r:.2f} &nbsp; N<sup>L</sup> = {_NL_html_r:.2f}</div>')
+    # ── Intro (matches the interface) ─────────────────────────────────────
+    parts.append(
+        "<p>We distinguish two types of appointment requests:</p>"
+        "<ul class='intro'>"
+        "<li>An <strong>early appointment request</strong> is made between the start of pregnancy and 35 days before the planned C-section date.</li>"
+        "<li>A <strong>late appointment request</strong> is made within 35 days of the planned C-section date.</li>"
+        "</ul>"
+        "<p>This tool compares two approaches to scheduling planned (elective) C-sections:</p>"
+        "<ul class='intro'>"
+        "<li>The <strong>standard approach</strong> allocates all operating slots to a shared waiting list, giving priority to the patient whose planned delivery date is soonest (with equal weight given to early and late requests).</li>"
+        "<li>The <strong>reservation approach</strong> sets aside a dedicated fraction of slots for women who book early (with higher weight given to early requests).</li>"
+        "</ul>"
+    )
 
-        pE_e, pL_e, pE_e_sd, pL_e_sd, lE_e, lL_e, cost_e, cost_e_sd = \
-            _policy_metrics(edf_data_, ann_E_, ann_L_, cE_, cL_)
-        _slot_rw_html = v_ * _NE_html_r * 52
-        pE_h, pL_h, pE_h_sd, pL_h_sd, lE_h, lL_h, cost_h, cost_h_sd = \
-            _policy_metrics(hyb_, ann_E_, ann_L_, cE_, cL_, slot_reward=_slot_rw_html)
-        x2 = ["Standard Approach", "Reservation Approach"]
+    # ── Inputs ────────────────────────────────────────────────────────────
+    parts.append('<div class="section"><h2>Inputs</h2>')
+    inputs_df = pd.DataFrame({
+        "Parameter": [
+            "Requests from Early Appointment",
+            "Requests from Late Appointment",
+            "Slots",
+            "Cost of a Canceled / Unperformed Scheduled Procedure — For Early Appointment Request",
+            "Cost of a Canceled / Unperformed Scheduled Procedure — For Late Appointment Request",
+            "Satisfaction Value of Early Appointment Request",
+            "Maximum Gap in Unmet Requests (Early vs Late) (%)",
+            "Advance Booking Window for Early Appointment Requests (days)",
+            "Number of Simulation Runs",
+            "Total Model Duration",
+            "Initial Run-In Period",
+        ],
+        "Value": [
+            f"{lE_:.3f}",
+            f"{lL_:.3f}",
+            f"{_N_}",
+            f"{cE_:.3f}",
+            f"{cL_:.3f}",
+            f"{v_:.3f}",
+            f"{Delta_*100:.1f}",
+            f"{mu_E_:.0f}",
+            f"{nr_}",
+            f"{T_:.0f}",
+            f"{T0_:.0f}",
+        ],
+    })
+    parts.append(_tbl(inputs_df))
+    parts.append('</div>')
 
-        fig_frac = go.Figure()
-        fig_frac.add_trace(go.Bar(name="Early Appointment Requests", x=x2,
-                                  y=[pE_e*100, pE_h*100],
-                                  error_y=dict(type='data', array=[pE_e_sd*100, pE_h_sd*100], visible=True),
-                                  marker_color=COLOR_E))
-        fig_frac.add_trace(go.Bar(name="Late Appointment Requests", x=x2,
-                                  y=[pL_e*100, pL_h*100],
-                                  error_y=dict(type='data', array=[pL_e_sd*100, pL_h_sd*100], visible=True),
-                                  marker_color=COLOR_L))
-        fig_frac.update_layout(barmode="group", yaxis_title="Case-Loss Fractions (%)",
-                               title="Case-Loss Fractions (%)", height=360, width=640, legend=_leg)
+    # ── Simulation Results ───────────────────────────────────────────────
+    parts.append('<div class="section"><h2>Simulation Results</h2>')
+    parts.append(
+        f'<div class="reserved-box">'
+        f'<strong>Number of Slots Reserved for Early Appointment Request:</strong> {_NE_:.2f}<br>'
+        f'<strong>Number of Slots Reserved for Late Appointment Request:</strong> {_NL_:.2f}'
+        f'</div>'
+    )
 
-        fig_loss = go.Figure()
-        fig_loss.add_trace(go.Bar(name="Early Appointment Requests", x=x2,
-                                  y=[lE_e, lE_h],
-                                  error_y=dict(type='data', array=[pE_e_sd*ann_E_, pE_h_sd*ann_E_], visible=True),
-                                  marker_color=COLOR_E))
-        fig_loss.add_trace(go.Bar(name="Late Appointment Requests", x=x2,
-                                  y=[lL_e, lL_h],
-                                  error_y=dict(type='data', array=[pL_e_sd*ann_L_, pL_h_sd*ann_L_], visible=True),
-                                  marker_color=COLOR_L))
-        fig_loss.update_layout(barmode="group",
-                               yaxis_title="Estimated Number of Case Losses per Year",
-                               title="Estimated Number of Case Losses per Year", height=360, width=640, legend=_leg)
+    x2 = ["Standard Approach", "Reservation Approach"]
 
-        aband_cost_h_ = cE_ * lE_h + cL_ * lL_h  # Hybrid case-loss cost (no slot reward)
-        savings = cost_e - cost_h
-        pct     = 100*savings/cost_e if cost_e > 0 else 0.0
-        sav_sd  = math.sqrt(cost_e_sd**2 + cost_h_sd**2)
-        color_s = "#2e7d32" if savings >= 0 else "#c62828"
-        sign_s  = "↓" if savings >= 0 else "↑"
-        fig_cost = go.Figure()
-        fig_cost.add_trace(go.Bar(name="Early Component", x=x2,
-                                  y=[cE_*lE_e, cE_*lE_h],
-                                  error_y=dict(type='data', array=[cE_*pE_e_sd*ann_E_, cE_*pE_h_sd*ann_E_], visible=True),
-                                  marker_color=COLOR_E))
-        fig_cost.add_trace(go.Bar(name="Late Component", x=x2,
-                                  y=[cL_*lL_e, cL_*lL_h],
-                                  error_y=dict(type='data', array=[cL_*pL_e_sd*ann_L_, cL_*pL_h_sd*ann_L_], visible=True),
-                                  marker_color=COLOR_L))
-        fig_cost.update_layout(barmode="stack",
-                               yaxis_title="Annual Cost Burden of Cancelled/Unplanned Cases (in Relative Cost Units)",
-                               title="Annual Cost Burden of Cancelled/Unplanned Cases (in Relative Cost Units)",
-                               height=360, width=640, legend=_leg)
+    # Figure 1: Percentage of Case Loss Per Week (%)
+    fig_frac = go.Figure()
+    fig_frac.add_trace(go.Bar(name="Early Appointment Requests", x=x2,
+                              y=[pE_e*100, pE_h*100],
+                              error_y=dict(type='data', array=[pE_e_sd*100, pE_h_sd*100], visible=True),
+                              marker_color=COLOR_E))
+    fig_frac.add_trace(go.Bar(name="Late Appointment Requests", x=x2,
+                              y=[pL_e*100, pL_h*100],
+                              error_y=dict(type='data', array=[pL_e_sd*100, pL_h_sd*100], visible=True),
+                              marker_color=COLOR_L))
+    fig_frac.update_layout(barmode="group",
+                           title=dict(text="Percentage of Case Loss Per Week (%)", x=0.5, xanchor="center"),
+                           yaxis_title="Percentage of Case Loss Per Week (%)",
+                           height=380, width=620, legend=_leg, margin=_margin)
 
-        fig_sav = go.Figure()
-        fig_sav.add_trace(go.Bar(x=x2, y=[cost_e, cost_h],
-                                 error_y=dict(type='data', array=[cost_e_sd, cost_h_sd], visible=True),
-                                 marker_color=[COLOR_E, color_s],
-                                 showlegend=False))
-        fig_sav.add_annotation(x=x2[1], y=cost_h + cost_h_sd * 1.4,
-                               text=f"{sign_s}{abs(savings):.1f} cost units/yr ({abs(pct):.1f}%)",
-                               showarrow=False, font=dict(size=12, color=color_s))
-        fig_sav.update_layout(yaxis_title="Annual Total Cost C(γ) (cost units/yr)", showlegend=False,
-                              title=f"Total Cost C(γ): Standard vs Reservation (v={v_:.3f})",
-                              height=360, width=640)
+    # Figure 2: Estimated Number of Case Losses per Year
+    fig_loss = go.Figure()
+    fig_loss.add_trace(go.Bar(name="Early Appointment Requests", x=x2,
+                              y=[lE_e, lE_h],
+                              error_y=dict(type='data', array=[pE_e_sd*ann_E_, pE_h_sd*ann_E_], visible=True),
+                              marker_color=COLOR_E))
+    fig_loss.add_trace(go.Bar(name="Late Appointment Requests", x=x2,
+                              y=[lL_e, lL_h],
+                              error_y=dict(type='data', array=[pL_e_sd*ann_L_, pL_h_sd*ann_L_], visible=True),
+                              marker_color=COLOR_L))
+    fig_loss.update_layout(barmode="group",
+                           title=dict(text="Estimated Number of Case Losses per Year", x=0.5, xanchor="center"),
+                           yaxis_title="Estimated Number of Case Losses per Year",
+                           height=380, width=620, legend=_leg, margin=_margin)
 
-        parts.append('<div class="row2">')
-        parts.append(f'<div>{_fig_html(fig_frac, responsive=False)}</div>')
-        parts.append(f'<div>{_fig_html(fig_loss, responsive=False)}</div>')
-        parts.append('</div><div class="row2">')
-        parts.append(f'<div>{_fig_html(fig_cost, responsive=False)}</div>')
-        parts.append(f'<div>{_fig_html(fig_sav, responsive=False)}</div>')
-        parts.append('</div>')
+    # Figure 3: Annual Cost Burden
+    fig_cost = go.Figure()
+    fig_cost.add_trace(go.Bar(name="Early Component", x=x2,
+                              y=[cE_*lE_e, cE_*lE_h],
+                              error_y=dict(type='data', array=[cE_*pE_e_sd*ann_E_, cE_*pE_h_sd*ann_E_], visible=True),
+                              marker_color=COLOR_E))
+    fig_cost.add_trace(go.Bar(name="Late Component", x=x2,
+                              y=[cL_*lL_e, cL_*lL_h],
+                              error_y=dict(type='data', array=[cL_*pL_e_sd*ann_L_, cL_*pL_h_sd*ann_L_], visible=True),
+                              marker_color=COLOR_L))
+    fig_cost.update_layout(barmode="stack",
+                           title=dict(text="Annual Cost Burden of Cancelled/Unplanned Cases (in Relative Cost Units)", x=0.5, xanchor="center"),
+                           yaxis_title="Annual Cost Burden of Cancelled/Unplanned Cases",
+                           height=380, width=620, legend=_leg, margin=_margin)
 
-        # Numeric summary table for this scenario
-        def _stat_cell_html(stats_df, key, as_pct=False):
-            if stats_df is None or key not in stats_df.index:
-                return "—"
-            m = float(stats_df.loc[key, "mean"]); s = float(stats_df.loc[key, "std"])
-            if as_pct:
-                return f"{m*100:.2f} ± {s*100:.2f}"
-            return f"{m:.3f} ± {s:.3f}"
+    # Figure 4: Annual Patient Satisfaction for Early Requests
+    fig_sat = go.Figure()
+    fig_sat.add_trace(go.Bar(x=x2, y=[0.0, _slot_rw],
+                             marker_color=[COLOR_E, "#2e7d32"],
+                             showlegend=False))
+    fig_sat.add_annotation(x=x2[1], y=_slot_rw, text=f"{_slot_rw:.1f}",
+                           showarrow=False, font=dict(size=12, color="#2e7d32"), yshift=14)
+    fig_sat.update_layout(title=dict(text="Annual Patient Satisfaction for Early Requests", x=0.5, xanchor="center"),
+                          yaxis_title="Annual Patient Satisfaction for Early Requests",
+                          height=380, width=620, showlegend=False, margin=dict(t=50, b=30))
 
-        _summary_df = pd.DataFrame({
-            "Metric": [
-                "Percentage of Case Loss Per Week (%) — Early Appointment Requests",
-                "Percentage of Case Loss Per Week (%) — Late Appointment Requests",
-                "Estimated Number of Case Losses per Year — Early Appointment Requests",
-                "Estimated Number of Case Losses per Year — Late Appointment Requests",
-                "Estimated Number of Case Losses per Year — Total",
-                "Annual Cost Burden of Cancelled/Unplanned Cases (in Relative Cost Units)",
-                "Annual Patient Satisfaction for Early Requests",
-                "Number of Slots Reserved for Early Appointment Request",
-                "Number of Slots Reserved for Late Appointment Request",
-            ],
-            "Standard Approach": [
-                f"{pE_e*100:.2f} ± {pE_e_sd*100:.2f}",
-                f"{pL_e*100:.2f} ± {pL_e_sd*100:.2f}",
-                f"{lE_e:.1f} ± {pE_e_sd*ann_E_:.1f}",
-                f"{lL_e:.1f} ± {pL_e_sd*ann_L_:.1f}",
-                f"{lE_e+lL_e:.1f}",
-                f"{cost_e:.1f} ± {cost_e_sd:.1f}",
-                "0.0",
-                "—",
-                "—",
-            ],
-            "Reservation Approach": [
-                f"{pE_h*100:.2f} ± {pE_h_sd*100:.2f}",
-                f"{pL_h*100:.2f} ± {pL_h_sd*100:.2f}",
-                f"{lE_h:.1f} ± {pE_h_sd*ann_E_:.1f}",
-                f"{lL_h:.1f} ± {pL_h_sd*ann_L_:.1f}",
-                f"{lE_h+lL_h:.1f}",
-                f"{aband_cost_h_:.1f} ± {cost_h_sd:.1f}",
-                f"{_slot_rw_html:.1f}",
-                f"{_NE_html_r:.2f}",
-                f"{_NL_html_r:.2f}",
-            ],
-        })
-        parts.append("<h3>Numeric Summary Table</h3>")
-        parts.append(_tbl(_summary_df))
-        parts.append('</div>')
+    parts.append('<div class="row2">')
+    parts.append(f'<div>{_fig_html(fig_frac, responsive=False)}'
+                 f'<p class="caption">The percentage of patients whose cases were cancelled or unplanned per week.</p></div>')
+    parts.append(f'<div>{_fig_html(fig_loss, responsive=False)}'
+                 f'<p class="caption">The number of patients whose procedures were cancelled or occurred unplanned over a 52-week period.</p></div>')
+    parts.append('</div><div class="row2">')
+    parts.append(f'<div>{_fig_html(fig_cost, responsive=False)}'
+                 f'<p class="caption">The total annual impact of cancelled or unplanned cases, expressed in relative cost units.</p></div>')
+    parts.append(f'<div>{_fig_html(fig_sat, responsive=False)}'
+                 f'<p class="caption">The annual value of reserving slots for early appointment requests, expressed in relative value units (reflecting reduced patient anxiety and decreased follow-up engagement).</p></div>')
+    parts.append('</div>')
+
+    # Numeric Summary Table
+    parts.append('<h3>Numeric Summary Table</h3>')
+    _summary_df = pd.DataFrame({
+        "Metric": [
+            "Percentage of Case Loss Per Week (%) — Early Appointment Requests",
+            "Percentage of Case Loss Per Week (%) — Late Appointment Requests",
+            "Estimated Number of Case Losses per Year — Early Appointment Requests",
+            "Estimated Number of Case Losses per Year — Late Appointment Requests",
+            "Estimated Number of Case Losses per Year — Total",
+            "Annual Cost Burden of Cancelled/Unplanned Cases (in Relative Cost Units)",
+            "Annual Patient Satisfaction for Early Requests",
+            "Number of Slots Reserved for Early Appointment Request",
+            "Number of Slots Reserved for Late Appointment Request",
+        ],
+        "Standard Approach": [
+            f"{pE_e*100:.2f} ± {pE_e_sd*100:.2f}",
+            f"{pL_e*100:.2f} ± {pL_e_sd*100:.2f}",
+            f"{lE_e:.1f} ± {pE_e_sd*ann_E_:.1f}",
+            f"{lL_e:.1f} ± {pL_e_sd*ann_L_:.1f}",
+            f"{lE_e+lL_e:.1f}",
+            f"{cost_e:.1f} ± {cost_e_sd:.1f}",
+            "0.0",
+            "—",
+            "—",
+        ],
+        "Reservation Approach": [
+            f"{pE_h*100:.2f} ± {pE_h_sd*100:.2f}",
+            f"{pL_h*100:.2f} ± {pL_h_sd*100:.2f}",
+            f"{lE_h:.1f} ± {pE_h_sd*ann_E_:.1f}",
+            f"{lL_h:.1f} ± {pL_h_sd*ann_L_:.1f}",
+            f"{lE_h+lL_h:.1f}",
+            f"{aband_cost_h_:.1f} ± {cost_h_sd:.1f}",
+            f"{_slot_rw:.1f}",
+            f"{_NE_:.2f}",
+            f"{_NL_:.2f}",
+        ],
+    })
+    parts.append(_tbl(_summary_df))
+    parts.append('</div>')
 
     parts.append("</body></html>")
     return "".join(parts)
