@@ -275,7 +275,7 @@ st.sidebar.title("Parameters")
 
 _sb_header("Cost")
 st.sidebar.markdown(
-    "<div style='font-size:0.875rem;margin-bottom:-14px'>Cost of a Canceled / Unperformed Scheduled Procedure:</div>",
+    "<div style='font-size:0.875rem;margin-bottom:-14px'>Cost of a Cancelled / Unperformed Scheduled Procedure:</div>",
     unsafe_allow_html=True,
 )
 t1_cE    = st.sidebar.number_input("For Early Appointment Request",  min_value=0.0, step=0.1,  format="%.3f", key="t1_cE",    disabled=_tab1_locked)
@@ -350,8 +350,8 @@ t1_gstep = float(st.session_state.get("t1_gstep", 0.01))
 _sb_header("Experiment Settings")
 t1_n_runs = st.sidebar.number_input("Number of Simulation Runs", 1, 500, step=5, key="t1_n_runs",
                                      disabled=_tab1_locked)
-T_max     = st.sidebar.number_input("Total Model Duration", 1, 10000, step=52, key="sb_T_max")
-T0_warmup = st.sidebar.number_input("Initial Run-In Period", 0, int(T_max), step=10, key="sb_T0")
+T_max     = st.sidebar.number_input("Total Model Duration (weeks)", 1, 10000, step=52, key="sb_T_max")
+T0_warmup = st.sidebar.number_input("Initial Run-In Period (weeks)", 0, int(T_max), step=10, key="sb_T0")
 p_ns   = st.sidebar.slider("No-Show Probability p", 0.0, 1.0, step=0.01, key="sb_p_ns")
 # Base random seed default (sidebar UI removed)
 seed0  = int(st.session_state.get("sb_seed0", 42))
@@ -596,10 +596,10 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
         fig.update_layout(barmode="group", yaxis_title="Percentage of Case Loss Per Week (%)",
                           height=360, margin=dict(t=10,b=80), legend=_leg)
         st.plotly_chart(fig, use_container_width=True, key=f"frac_{mu_E}")
-        st.caption("The percentage of patients whose cases were cancelled or unplanned per week.")
+        st.caption("The percentage of patients whose cases were cancelled / unperformed per week.")
 
     with c2:
-        st.markdown(f"<div style='{_title_style}'>Estimated Number of Case Losses per Year</div>", unsafe_allow_html=True)
+        st.markdown(f"<div style='{_title_style}'>Estimated Number of Case Losses Per Year</div>", unsafe_allow_html=True)
         fig2 = go.Figure()
         fig2.add_trace(go.Bar(name="Early Appointment Requests", x=x_labels,
                               y=[lE_e, lE_h],
@@ -610,40 +610,56 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
                               error_y=dict(type='data', array=[pL_e_sd*ann_L, pL_h_sd*ann_L], visible=True),
                               marker_color=COLOR_L))
         fig2.update_layout(barmode="group",
-                           yaxis_title="Estimated Number of Case Losses per Year",
+                           yaxis_title="Estimated Number of Case Losses Per Year",
                            height=360, margin=dict(t=10,b=80), legend=_leg)
         st.plotly_chart(fig2, use_container_width=True, key=f"loss_{mu_E}")
-        st.caption("The number of patients whose procedures were cancelled or occurred unplanned over a 52-week period.")
+        st.caption("The number of patients whose procedures were cancelled / unperformed over a 52-week period.")
 
     # ── Row 2 ──────────────────────────────────────────────────────────────
     c3, c4 = st.columns(2)
 
     with c3:
         st.markdown(
-            f"<div style='{_title_style}'>Annual Cost Burden of Cancelled/Unplanned Cases (in Relative Cost Units)</div>",
+            f"<div style='{_title_style}'>Annual Cost Burden of Cancelled / Unperformed Cases (in Relative Cost Units)</div>",
             unsafe_allow_html=True,
         )
         fig3 = go.Figure()
-        fig3.add_trace(go.Bar(name="Early Component", x=x_labels,
+        fig3.add_trace(go.Bar(name="Early Appointment Requests", x=x_labels,
                               y=[cE*lE_e, cE*lE_h],
-                              error_y=dict(type='data', array=[cE*pE_e_sd*ann_E, cE*pE_h_sd*ann_E], visible=True),
                               marker_color=COLOR_E))
-        fig3.add_trace(go.Bar(name="Late Component", x=x_labels,
+        fig3.add_trace(go.Bar(name="Late Appointment Requests", x=x_labels,
                               y=[cL*lL_e, cL*lL_h],
-                              error_y=dict(type='data', array=[cL*pL_e_sd*ann_L, cL*pL_h_sd*ann_L], visible=True),
                               marker_color=COLOR_L))
+        # Error bars drawn as overlay traces so they render on top of the
+        # stacked bars and stay fully visible (Early's whisker would otherwise
+        # be hidden by the Late segment above it).
+        fig3.add_trace(go.Scatter(
+            x=x_labels, y=[cE*lE_e, cE*lE_h],
+            error_y=dict(type='data',
+                         array=[cE*pE_e_sd*ann_E, cE*pE_h_sd*ann_E],
+                         visible=True, color="black", thickness=1.5, width=6),
+            mode="markers", marker=dict(color="rgba(0,0,0,0)", size=0.1),
+            showlegend=False, hoverinfo="skip"))
+        fig3.add_trace(go.Scatter(
+            x=x_labels, y=[cE*lE_e + cL*lL_e, cE*lE_h + cL*lL_h],
+            error_y=dict(type='data',
+                         array=[cL*pL_e_sd*ann_L, cL*pL_h_sd*ann_L],
+                         visible=True, color="black", thickness=1.5, width=6),
+            mode="markers", marker=dict(color="rgba(0,0,0,0)", size=0.1),
+            showlegend=False, hoverinfo="skip"))
         fig3.update_layout(barmode="stack",
-                           yaxis_title="Annual Cost Burden of Cancelled/Unplanned Cases",
-                           height=360, margin=dict(t=10,b=80), legend=_leg)
+                           yaxis_title="Annual Cost Burden",
+                           height=360, margin=dict(t=10,b=80),
+                           legend=dict(**_leg, traceorder="reversed"))
         st.plotly_chart(fig3, use_container_width=True, key=f"cost_{mu_E}")
-        st.caption("The total annual impact of cancelled or unplanned cases, expressed in relative cost units.")
+        st.caption("The total annual impact of cancelled / unperformed cases, expressed in relative cost units.")
 
     with c4:
         sat_e = 0.0
-        sat_h = _slot_reward_h  # v × γ* × N × 52
+        sat_h = (1.0 - pE_h) * 100
         color_h = "#2e7d32"
         st.markdown(
-            f"<div style='{_title_style}'>Annual Patient Satisfaction for Early Requests</div>",
+            f"<div style='{_title_style}'>Patient Satisfaction Level for Early Requests (%)</div>",
             unsafe_allow_html=True,
         )
         fig4 = go.Figure()
@@ -656,18 +672,18 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
         fig4.add_annotation(
             x=x_labels[1],
             y=sat_h,
-            text=f"{sat_h:.1f}",
+            text=f"{sat_h:.2f}",
             showarrow=False,
             font=dict(size=12, color=color_h),
             yshift=14,
         )
         fig4.update_layout(
-            yaxis_title="Annual Patient Satisfaction for Early Requests",
+            yaxis_title="Patient Satisfaction Level for Early Requests (%)",
             height=360, margin=dict(t=30, b=30),
             showlegend=False,
         )
         st.plotly_chart(fig4, use_container_width=True, key=f"satisfaction_{mu_E}")
-        st.caption("The annual value of reserving slots for early appointment requests, expressed in relative value units (reflecting reduced patient anxiety and decreased follow-up engagement).")
+        st.caption("The proportion of early-request patients who feel satisfied due to reduced patient anxiety and decreased follow-up engagement when slots are reserved for early appointment requests.")
 
     # ── Numeric summary ────────────────────────────────────────────────────
     def _stat_cell(stats_df, key, as_pct=False):
@@ -683,13 +699,11 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
             "Metric": [
                 "Percentage of Case Loss Per Week (%) — Early Appointment Requests",
                 "Percentage of Case Loss Per Week (%) — Late Appointment Requests",
-                "Estimated Number of Case Losses per Year — Early Appointment Requests",
-                "Estimated Number of Case Losses per Year — Late Appointment Requests",
-                "Estimated Number of Case Losses per Year — Total",
-                "Annual Cost Burden of Cancelled/Unplanned Cases (in Relative Cost Units)",
-                "Annual Patient Satisfaction for Early Requests",
-                "Number of Slots Reserved for Early Appointment Request",
-                "Number of Slots Reserved for Late Appointment Request",
+                "Estimated Number of Case Losses Per Year — Early Appointment Requests",
+                "Estimated Number of Case Losses Per Year — Late Appointment Requests",
+                "Estimated Number of Case Losses Per Year — Total",
+                "Annual Cost Burden of Cancelled / Unperformed Cases (in Relative Cost Units)",
+                "Patient Satisfaction Level for Early Requests (%)",
             ],
             "Standard Approach": [
                 f"{pE_e*100:.2f} ± {pE_e_sd*100:.2f}",
@@ -698,9 +712,7 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
                 f"{lL_e:.1f} ± {pL_e_sd*ann_L:.1f}",
                 f"{lE_e+lL_e:.1f}",
                 f"{cost_e:.1f} ± {cost_e_sd:.1f}",
-                "0.0",
-                "—",
-                "—",
+                "0.00",
             ],
             "Reservation Approach": [
                 f"{pE_h*100:.2f} ± {pE_h_sd*100:.2f}",
@@ -709,9 +721,7 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
                 f"{lL_h:.1f} ± {pL_h_sd*ann_L:.1f}",
                 f"{lE_h+lL_h:.1f}",
                 f"{aband_cost_h:.1f} ± {cost_h_sd:.1f}",
-                f"{_slot_reward_h:.1f}",
-                f"{NE_star:.2f}",
-                f"{NL_star:.2f}",
+                f"{(1.0-pE_h)*100:.2f}",
             ],
         })
         st.dataframe(summary, use_container_width=True, hide_index=True)
@@ -822,17 +832,17 @@ def _generate_html_report() -> str:
     parts.append('<div class="section"><h2>Inputs</h2>')
     inputs_df = pd.DataFrame({
         "Parameter": [
-            "Requests from Early Appointment",
-            "Requests from Late Appointment",
-            "Slots",
-            "Cost of a Canceled / Unperformed Scheduled Procedure — For Early Appointment Request",
-            "Cost of a Canceled / Unperformed Scheduled Procedure — For Late Appointment Request",
+            "Number of Early Appointment Requests Per Week",
+            "Number of Late Appointment Requests Per Week",
+            "Slots Per Week",
+            "Cost of a Cancelled / Unperformed Scheduled Procedure — For Early Appointment Request",
+            "Cost of a Cancelled / Unperformed Scheduled Procedure — For Late Appointment Request",
             "Satisfaction Value of Early Appointment Request",
             "Maximum Gap in Unmet Requests (Early vs Late) (%)",
             "Advance Booking Window for Early Appointment Requests (days)",
             "Number of Simulation Runs",
-            "Total Model Duration",
-            "Initial Run-In Period",
+            "Total Model Duration (weeks)",
+            "Initial Run-In Period (weeks)",
         ],
         "Value": [
             f"{lE_:.3f}",
@@ -855,8 +865,8 @@ def _generate_html_report() -> str:
     parts.append('<div class="section"><h2>Simulation Results</h2>')
     parts.append(
         f'<div class="reserved-box">'
-        f'<strong>Number of Slots Reserved for Early Appointment Request:</strong> {_NE_:.2f}<br>'
-        f'<strong>Number of Slots Reserved for Late Appointment Request:</strong> {_NL_:.2f}'
+        f'<strong>Number of Slots Reserved for Early Appointment Requests:</strong> {_NE_:.2f}<br>'
+        f'<strong>Number of Slots Reserved for Late Appointment Requests:</strong> {_NL_:.2f}'
         f'</div>'
     )
 
@@ -877,7 +887,7 @@ def _generate_html_report() -> str:
                            yaxis_title="Percentage of Case Loss Per Week (%)",
                            height=380, width=620, legend=_leg, margin=_margin)
 
-    # Figure 2: Estimated Number of Case Losses per Year
+    # Figure 2: Estimated Number of Case Losses Per Year
     fig_loss = go.Figure()
     fig_loss.add_trace(go.Bar(name="Early Appointment Requests", x=x2,
                               y=[lE_e, lE_h],
@@ -888,46 +898,61 @@ def _generate_html_report() -> str:
                               error_y=dict(type='data', array=[pL_e_sd*ann_L_, pL_h_sd*ann_L_], visible=True),
                               marker_color=COLOR_L))
     fig_loss.update_layout(barmode="group",
-                           title=dict(text="Estimated Number of Case Losses per Year", x=0.5, xanchor="center"),
-                           yaxis_title="Estimated Number of Case Losses per Year",
+                           title=dict(text="Estimated Number of Case Losses Per Year", x=0.5, xanchor="center"),
+                           yaxis_title="Estimated Number of Case Losses Per Year",
                            height=380, width=620, legend=_leg, margin=_margin)
 
     # Figure 3: Annual Cost Burden
     fig_cost = go.Figure()
-    fig_cost.add_trace(go.Bar(name="Early Component", x=x2,
+    fig_cost.add_trace(go.Bar(name="Early Appointment Requests", x=x2,
                               y=[cE_*lE_e, cE_*lE_h],
-                              error_y=dict(type='data', array=[cE_*pE_e_sd*ann_E_, cE_*pE_h_sd*ann_E_], visible=True),
                               marker_color=COLOR_E))
-    fig_cost.add_trace(go.Bar(name="Late Component", x=x2,
+    fig_cost.add_trace(go.Bar(name="Late Appointment Requests", x=x2,
                               y=[cL_*lL_e, cL_*lL_h],
-                              error_y=dict(type='data', array=[cL_*pL_e_sd*ann_L_, cL_*pL_h_sd*ann_L_], visible=True),
                               marker_color=COLOR_L))
+    fig_cost.add_trace(go.Scatter(
+        x=x2, y=[cE_*lE_e, cE_*lE_h],
+        error_y=dict(type='data',
+                     array=[cE_*pE_e_sd*ann_E_, cE_*pE_h_sd*ann_E_],
+                     visible=True, color="black", thickness=1.5, width=6),
+        mode="markers", marker=dict(color="rgba(0,0,0,0)", size=0.1),
+        showlegend=False, hoverinfo="skip"))
+    fig_cost.add_trace(go.Scatter(
+        x=x2, y=[cE_*lE_e + cL_*lL_e, cE_*lE_h + cL_*lL_h],
+        error_y=dict(type='data',
+                     array=[cL_*pL_e_sd*ann_L_, cL_*pL_h_sd*ann_L_],
+                     visible=True, color="black", thickness=1.5, width=6),
+        mode="markers", marker=dict(color="rgba(0,0,0,0)", size=0.1),
+        showlegend=False, hoverinfo="skip"))
     fig_cost.update_layout(barmode="stack",
-                           title=dict(text="Annual Cost Burden of Cancelled/Unplanned Cases (in Relative Cost Units)", x=0.5, xanchor="center"),
-                           yaxis_title="Annual Cost Burden of Cancelled/Unplanned Cases",
-                           height=380, width=620, legend=_leg, margin=_margin)
+                           title=dict(text="Annual Cost Burden of Cancelled / Unperformed Cases (in Relative Cost Units)", x=0.5, xanchor="center"),
+                           yaxis_title="Annual Cost Burden",
+                           height=380, width=620,
+                           legend=dict(**_leg, traceorder="reversed"),
+                           margin=_margin)
 
-    # Figure 4: Annual Patient Satisfaction for Early Requests
+    # Figure 4: Patient Satisfaction Level for Early Requests (%)
+    _sat_h = (1.0 - pE_h) * 100
     fig_sat = go.Figure()
-    fig_sat.add_trace(go.Bar(x=x2, y=[0.0, _slot_rw],
+    fig_sat.add_trace(go.Bar(x=x2, y=[0.0, _sat_h],
                              marker_color=[COLOR_E, "#2e7d32"],
                              showlegend=False))
-    fig_sat.add_annotation(x=x2[1], y=_slot_rw, text=f"{_slot_rw:.1f}",
+    fig_sat.add_annotation(x=x2[1], y=_sat_h, text=f"{_sat_h:.2f}",
                            showarrow=False, font=dict(size=12, color="#2e7d32"), yshift=14)
-    fig_sat.update_layout(title=dict(text="Annual Patient Satisfaction for Early Requests", x=0.5, xanchor="center"),
-                          yaxis_title="Annual Patient Satisfaction for Early Requests",
+    fig_sat.update_layout(title=dict(text="Patient Satisfaction Level for Early Requests (%)", x=0.5, xanchor="center"),
+                          yaxis_title="Patient Satisfaction Level for Early Requests (%)",
                           height=380, width=620, showlegend=False, margin=dict(t=50, b=30))
 
     parts.append('<div class="row2">')
     parts.append(f'<div>{_fig_html(fig_frac, responsive=False)}'
-                 f'<p class="caption">The percentage of patients whose cases were cancelled or unplanned per week.</p></div>')
+                 f'<p class="caption">The percentage of patients whose cases were cancelled / unperformed per week.</p></div>')
     parts.append(f'<div>{_fig_html(fig_loss, responsive=False)}'
-                 f'<p class="caption">The number of patients whose procedures were cancelled or occurred unplanned over a 52-week period.</p></div>')
+                 f'<p class="caption">The number of patients whose procedures were cancelled / unperformed over a 52-week period.</p></div>')
     parts.append('</div><div class="row2">')
     parts.append(f'<div>{_fig_html(fig_cost, responsive=False)}'
-                 f'<p class="caption">The total annual impact of cancelled or unplanned cases, expressed in relative cost units.</p></div>')
+                 f'<p class="caption">The total annual impact of cancelled / unperformed cases, expressed in relative cost units.</p></div>')
     parts.append(f'<div>{_fig_html(fig_sat, responsive=False)}'
-                 f'<p class="caption">The annual value of reserving slots for early appointment requests, expressed in relative value units (reflecting reduced patient anxiety and decreased follow-up engagement).</p></div>')
+                 f'<p class="caption">The proportion of early-request patients who feel satisfied due to reduced patient anxiety and decreased follow-up engagement when slots are reserved for early appointment requests.</p></div>')
     parts.append('</div>')
 
     # Numeric Summary Table
@@ -936,13 +961,11 @@ def _generate_html_report() -> str:
         "Metric": [
             "Percentage of Case Loss Per Week (%) — Early Appointment Requests",
             "Percentage of Case Loss Per Week (%) — Late Appointment Requests",
-            "Estimated Number of Case Losses per Year — Early Appointment Requests",
-            "Estimated Number of Case Losses per Year — Late Appointment Requests",
-            "Estimated Number of Case Losses per Year — Total",
-            "Annual Cost Burden of Cancelled/Unplanned Cases (in Relative Cost Units)",
-            "Annual Patient Satisfaction for Early Requests",
-            "Number of Slots Reserved for Early Appointment Request",
-            "Number of Slots Reserved for Late Appointment Request",
+            "Estimated Number of Case Losses Per Year — Early Appointment Requests",
+            "Estimated Number of Case Losses Per Year — Late Appointment Requests",
+            "Estimated Number of Case Losses Per Year — Total",
+            "Annual Cost Burden of Cancelled / Unperformed Cases (in Relative Cost Units)",
+            "Patient Satisfaction Level for Early Requests (%)",
         ],
         "Standard Approach": [
             f"{pE_e*100:.2f} ± {pE_e_sd*100:.2f}",
@@ -951,9 +974,7 @@ def _generate_html_report() -> str:
             f"{lL_e:.1f} ± {pL_e_sd*ann_L_:.1f}",
             f"{lE_e+lL_e:.1f}",
             f"{cost_e:.1f} ± {cost_e_sd:.1f}",
-            "0.0",
-            "—",
-            "—",
+            "0.00",
         ],
         "Reservation Approach": [
             f"{pE_h*100:.2f} ± {pE_h_sd*100:.2f}",
@@ -962,9 +983,7 @@ def _generate_html_report() -> str:
             f"{lL_h:.1f} ± {pL_h_sd*ann_L_:.1f}",
             f"{lE_h+lL_h:.1f}",
             f"{aband_cost_h_:.1f} ± {cost_h_sd:.1f}",
-            f"{_slot_rw:.1f}",
-            f"{_NE_:.2f}",
-            f"{_NL_:.2f}",
+            f"{(1.0-pE_h)*100:.2f}",
         ],
     })
     parts.append(_tbl(_summary_df))
@@ -1031,19 +1050,19 @@ with st.container(border=True):
         '<div style="background:#1b4f8a;color:#ffffff;padding:5px 10px;'
         'border-radius:5px;margin:0 0 10px 0;font-size:0.78em;'
         'font-weight:700;letter-spacing:0.09em;text-transform:uppercase;">'
-        'Demand &amp; Slots</div>',
+        'Reuqests &amp; Slots</div>',
         unsafe_allow_html=True)
     _d_e, _d_l, _d_n = st.columns(3)
     with _d_e:
-        λE = st.number_input("Requests from Early Appointment", 0.0, 500.0,
+        λE = st.number_input("Number of Early Appointment Requests Per Week", 0.0, 500.0,
                              step=0.001, format="%.3f",
                              key="sb_lambdaE", disabled=results_exist)
     with _d_l:
-        λL = st.number_input("Requests from Late Appointment",  0.0, 500.0,
+        λL = st.number_input("Number of Late Appointment Requests Per Week",  0.0, 500.0,
                              step=0.001, format="%.3f",
                              key="sb_lambdaL", disabled=results_exist)
     with _d_n:
-        N_servers = st.number_input("Slots", 1, 500, step=1,
+        N_servers = st.number_input("Slots Per Week", 1, 500, step=1,
                                     key="sb_N", disabled=results_exist)
 
 params_base = dict(
@@ -1125,8 +1144,8 @@ if results_exist:
         _NE_exp = _gs_exp * _N_s; _NL_exp = _N_s - _NE_exp
         with st.container(border=True):
             st.markdown(
-                f"**Number of Slots Reserved for Early Appointment Request:** {_NE_exp:.2f}  \n"
-                f"**Number of Slots Reserved for Late Appointment Request:** {_NL_exp:.2f}"
+                f"**Number of Slots Reserved for Early Appointment Requests:** {_NE_exp:.2f}  \n"
+                f"**Number of Slots Reserved for Late Appointment Requests:** {_NL_exp:.2f}"
             )
         _comparison_charts(edf_base, res["hyb"], lE_s, lL_s, cE_s, cL_s,
                            v=v_s, N=_N_s, T=_T_s, T0=_T0_s)
