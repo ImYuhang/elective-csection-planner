@@ -275,7 +275,7 @@ st.sidebar.title("Parameters")
 
 _sb_header("Cost")
 st.sidebar.markdown(
-    "<div style='font-size:0.875rem;margin-bottom:-14px'>Cost of a Cancelled / Unperformed Scheduled Procedure:</div>",
+    "<div style='font-size:0.875rem'>Cost of a Cancelled / Unperformed Scheduled Procedure:</div>",
     unsafe_allow_html=True,
 )
 t1_cE    = st.sidebar.number_input("For Early Appointment Request",  min_value=0.0, step=0.1,  format="%.3f", key="t1_cE",    disabled=_tab1_locked)
@@ -687,7 +687,7 @@ def _comparison_charts(edf_data: Dict, hyb_data: Dict,
         )
         fig4.update_layout(
             yaxis=dict(title="Patient Satisfaction Level for Early Requests (%)",
-                       range=[0, 100], tick0=0, dtick=20),
+                       range=[0, 105], tick0=0, dtick=20),
             height=360, margin=dict(t=30, b=30),
             showlegend=False,
         )
@@ -953,7 +953,7 @@ def _generate_html_report() -> str:
                            showarrow=False, font=dict(size=12, color="#2e7d32"), yshift=14)
     fig_sat.update_layout(title=dict(text="Patient Satisfaction Level for Early Requests (%)", x=0.5, xanchor="center"),
                           yaxis=dict(title="Patient Satisfaction Level for Early Requests (%)",
-                                     range=[0, 100], tick0=0, dtick=20),
+                                     range=[0, 105], tick0=0, dtick=20),
                           height=380, width=620, showlegend=False, margin=dict(t=50, b=30))
 
     parts.append('<div class="row2">')
